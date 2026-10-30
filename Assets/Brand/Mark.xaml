@@ -1,0 +1,14 @@
+<DrawingImage xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation">
+  <DrawingImage.Drawing>
+    <DrawingGroup>
+      <GeometryDrawing Brush="#202534"><GeometryDrawing.Geometry><RectangleGeometry Rect="0,0,96,96" RadiusX="22" RadiusY="22"/></GeometryDrawing.Geometry><GeometryDrawing.Pen><Pen Brush="#39435B" Thickness="2"/></GeometryDrawing.Pen></GeometryDrawing>
+      <GeometryDrawing Brush="#9ADCB7" Geometry="M 26,18 C 20,18 16,24 17,33 C 20,55 41,76 63,79 C 72,80 78,74 78,68 L 78,59 Q 78,55 73,54 L 62,51 Q 58,50 56,54 L 52,61 C 44,57 38,51 34,44 L 41,39 Q 44,37 43,33 L 39,22 Q 38,18 33,18 Z"/>
+      <DrawingGroup>
+        <DrawingGroup.ClipGeometry><PathGeometry Figures="M 8,78 L 78,8 L 96,8 L 96,96 L 8,96 Z"/></DrawingGroup.ClipGeometry>
+        <GeometryDrawing Brush="#B39AFF" Geometry="M 26,18 C 20,18 16,24 17,33 C 20,55 41,76 63,79 C 72,80 78,74 78,68 L 78,59 Q 78,55 73,54 L 62,51 Q 58,50 56,54 L 52,61 C 44,57 38,51 34,44 L 41,39 Q 44,37 43,33 L 39,22 Q 38,18 33,18 Z"/>
+      </DrawingGroup>
+      <GeometryDrawing Geometry="M 23,55 L 34,51 L 39,58 L 47,47 L 54,50 L 66,40"><GeometryDrawing.Pen><Pen Brush="#202534" Thickness="5.8" StartLineCap="Round" EndLineCap="Round" LineJoin="Round"/></GeometryDrawing.Pen></GeometryDrawing>
+      <GeometryDrawing Geometry="M 65,19 L 58,29 L 66,30 L 60,39"><GeometryDrawing.Pen><Pen Brush="#E9D59B" Thickness="3" StartLineCap="Round" EndLineCap="Round" LineJoin="Round"/></GeometryDrawing.Pen></GeometryDrawing>
+    </DrawingGroup>
+  </DrawingImage.Drawing>
+</DrawingImage>

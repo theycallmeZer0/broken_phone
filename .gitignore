@@ -1,0 +1,11 @@
+.idea/
+.venv/
+.vs/
+bin/
+obj/
+.runtime/
+build/
+dist/
+exports/
+
+UserData/

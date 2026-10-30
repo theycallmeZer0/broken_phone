@@ -1,0 +1,5 @@
+Актуальная версия: Broken Phone 0.8
+Игра: dist\BrokenPhone\BrokenPhone.exe
+Архив: dist\BrokenPhone-Windows-x64.zip
+Запуск из корня проекта: Run.cmd
+Сохранённые данные прежних запусков: UserData\previous-recordings-settings.zip

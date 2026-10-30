@@ -1,0 +1,8 @@
+Steamworks API redistributable (steam_api64.dll)
+Copyright Valve Corporation. All rights reserved.
+The supplied SDK library has a verified Authenticode signature from Valve Corp.
+Native SDK interfaces are bound directly by this project; no DLL from the inspected multiplayer-fix installer is shipped.
+Development App ID: 480 (Spacewar). A production Steam release requires its own App ID and appropriate Steamworks setup.
+SDK overview: https://partner.steamgames.com/doc/sdk/api
+Example application: https://partner.steamgames.com/doc/sdk/api/example
+Networking: https://partner.steamgames.com/doc/api/ISteamNetworkingSockets
