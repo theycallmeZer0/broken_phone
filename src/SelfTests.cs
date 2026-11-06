@@ -41,9 +41,22 @@ namespace BrokenPhone
             public void Dispose() { Client.Dispose(); }
         }
         static void Check(bool value, string text) { if (!value) throw new Exception(text); }
+        static Message CastMessage(RoomState state, string kind) { return new Message { kind = kind, flag = true, round = state.round, index = state.roleVersion }; }
+        static void ConfirmCast(Inbox host, Inbox guest)
+        {
+            host.Wait(RoleCasting.Complete); guest.Wait(s => s.roleVersion == host.State.roleVersion);
+            host.Client.Send(CastMessage(host.State, "role_ready")); guest.Client.Send(CastMessage(host.State, "role_ready")); host.Wait(s => s.players.All(player => player.ready));
+        }
         static void StartLoadedRound(Inbox host, Inbox guest)
         {
-            host.Client.Send(new Message { kind = "start" }); host.Wait(s => s.phase == "loading"); guest.Wait(s => s.phase == "loading");
+            if (host.State.phase == "lobby")
+            {
+                host.Client.Send(new Message { kind = "start" }); host.Wait(s => s.phase == "casting"); guest.Wait(s => s.phase == "casting");
+                Check(host.State.roles.All(role => String.IsNullOrEmpty(role.playerId)) && host.State.players.All(player => !player.ready), "Выбор ролей должен начинаться отдельным этапом после старта.");
+                host.Client.Send(new Message { kind = "role_mode", text = "auto" }); host.Wait(s => s.roleMode == "auto" && RoleCasting.Complete(s)); guest.Wait(s => RoleCasting.Complete(s));
+                ConfirmCast(host, guest);
+            }
+            host.Client.Send(CastMessage(host.State, "cast_start")); host.Wait(s => s.phase == "loading"); guest.Wait(s => s.phase == "loading");
             host.Client.Send(new Message { kind = "pack_ready", round = host.State.round, id = host.State.pack.contentKey }); host.Wait(s => s.players.First(p => p.host).prepared);
             Check(host.State.phase == "loading", "Раунд начался до загрузки пака у гостя.");
             guest.Client.Send(new Message { kind = "recording", round = guest.State.round, index = 0, flag = true }); guest.Error("другого игрока");

@@ -4,7 +4,7 @@ namespace BrokenPhone
 {
     public static class Playback
     {
-        public const int Protocol = 8;
+        public const int Protocol = 10;
         public static long Now { get { return DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(); } }
         public static double Position(RoomState state, long serverNow)
         {

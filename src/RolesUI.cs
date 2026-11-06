@@ -15,45 +15,44 @@ namespace BrokenPhone
 
         void InitializeRoles()
         {
-            B("ChooseRolesButton").Click += delegate { OpenRoles(); };
             B("AutoRolesButton").Click += delegate { Send(new Message { kind = "role_mode", text = "auto" }); };
             B("ManualRolesButton").Click += delegate { Send(new Message { kind = "role_mode", text = "manual" }); };
-            B("RolesDoneButton").Click += delegate { Page("Lobby"); };
+            B("RolesReadyButton").Click += delegate { if (Me != null) Send(new Message { kind = "role_ready", flag = !Me.ready, round = state.round, index = state.roleVersion }); };
+            B("BeginDubbingButton").Click += delegate { Send(new Message { kind = "cast_start", round = state.round, index = state.roleVersion }); };
+            B("CancelCastingButton").Click += delegate { Send(new Message { kind = "reset" }); };
             C<WrapPanel>("RoleCards").SizeChanged += delegate { UpdateRoleLayout(); };
-        }
-
-        void OpenRoles()
-        {
-            if (state == null || state.phase != "lobby") { Toast("Роли выбираются перед началом раунда."); return; }
-            Page("Roles"); RenderRoles();
         }
 
         void RenderRoles()
         {
             if (state == null) return;
-            bool manual = state.roleMode == "manual", complete = RoleCasting.Complete(state);
+            bool manual = state.roleMode == "manual", pending = state.roleMode == "pending", complete = RoleCasting.Complete(state);
             int mine = state.roles.Count(role => client != null && role.playerId == client.Id), assigned = state.roles.Count(role => !String.IsNullOrEmpty(role.playerId));
             int lines = state.roles.Where(role => client != null && role.playerId == client.Id).Sum(role => role.lines);
-            Text("RolesLobbySummary", (manual ? "Выбираем сами" : "Распределено автоматически") + " · Ролей: " + assigned + " / " + state.roles.Count + " · Твоих: " + mine);
-            B("ChooseRolesButton").Content = manual ? "Выбрать роли  →" : "Роли и режим  →"; B("ChooseRolesButton").IsEnabled = state.phase == "lobby";
+            Text("RolesLobbySummary", "После «Начать игру» все выбирают и подтверждают свои роли.");
             if (state.phase == "lobby")
             {
-                B("ReadyButton").IsEnabled = complete;
-                B("StartButton").IsEnabled = IsHost && complete && downloadCancellation == null && state.players.Count >= 2 && state.players.All(player => player.ready);
-                if (!complete) Text("StartHint", "Выберите все роли: " + assigned + " из " + state.roles.Count + ".");
-                Text("ReadyHint", mine == 0 ? "У тебя нет роли. Можешь выбрать персонажа или смотреть раунд." : "Твоих ролей: " + mine + " · Реплик: " + lines + ". Каждый персонаж сохраняет свой голос.");
+                B("ReadyButton").IsEnabled = true;
+                bool enough = state.roles.Count >= state.players.Count;
+                B("StartButton").IsEnabled = IsHost && enough && downloadCancellation == null && state.players.Count >= 2 && state.players.All(player => player.ready);
+                if (!enough) Text("StartHint", "Ролей: " + state.roles.Count + ", игроков: " + state.players.Count + ". Выбери пак с ролью для каждого.");
+                Text("ReadyHint", "Начало игры → выбор ролей → загрузка пака → озвучка.");
             }
             if (currentPage != "Roles") return;
             Text("RolesPackTitle", state.pack.title.ToUpperInvariant());
             Text("RolesSubtitle", "Ролей: " + state.roles.Count + " · Реплик: " + state.pack.DisplayLines + ". Все реплики персонажа озвучивает один игрок.");
-            Text("RolesModeHint", IsHost ? "Выбери способ распределения для всей комнаты." : "Способ распределения выбирает ведущий.");
+            Text("RolesModeHint", pending ? (IsHost ? "Выбери способ распределения для всей комнаты." : "Ждём, пока ведущий выберет способ распределения.") : "Каждый участник подтверждает свою роль перед озвучкой.");
             foreach (string name in new[] { "AutoRolesButton", "ManualRolesButton" })
             {
-                bool selected = name == (manual ? "ManualRolesButton" : "AutoRolesButton"); var button = B(name);
+                bool selected = !pending && name == (manual ? "ManualRolesButton" : "AutoRolesButton"); var button = B(name);
                 button.Background = Brush(selected ? "#B7A7DF" : "#252C3D"); button.Foreground = Brush(selected ? "#201B2E" : "#CDD2E5"); button.IsEnabled = IsHost;
             }
-            Text("RolesStatus", "Выбрано: " + assigned + " / " + state.roles.Count + " · Твоих ролей: " + mine + " · Реплик: " + lines);
-            Text("RolesHelp", manual ? "Можно взять несколько ролей. Нажми «Снять выбор», чтобы освободить роль и выбрать другую." : "Роли распределены с учётом количества реплик. Для своего выбора ведущий может включить ручной режим.");
+            Text("RolesStatus", "Роли: " + assigned + " / " + state.roles.Count + " · Подтвердили: " + state.players.Count(player => player.ready) + " / " + state.players.Count + " · Твоих реплик: " + lines);
+            Text("RolesHelp", pending ? "Сначала выберите автоматическое распределение или ручной выбор." : mine == 0 ? "Выбери хотя бы одну роль. Без своей роли подтвердить участие нельзя." : "Можно взять несколько ролей. Подтверди выбор; перевыбор сбрасывает подтверждения всех.");
+            B("RolesReadyButton").Content = Me != null && Me.ready ? "✓ Роль подтверждена" : "Подтвердить роль";
+            B("RolesReadyButton").IsEnabled = state.phase == "casting" && mine > 0;
+            B("BeginDubbingButton").Visibility = B("CancelCastingButton").Visibility = IsHost ? Visibility.Visible : Visibility.Collapsed;
+            B("BeginDubbingButton").IsEnabled = state.phase == "casting" && complete && state.players.All(player => player.ready);
             string key = Json.Write(new { state.roleMode, state.roles, players = state.players.Select(player => new { player.id, player.name, player.color }).ToArray(), me = client.Id });
             if (key == renderedRoles) return; renderedRoles = key;
             var panel = C<WrapPanel>("RoleCards"); double offset = C<ScrollViewer>("RolesScroll").VerticalOffset; panel.Children.Clear(); roleControls.Clear();
@@ -77,7 +76,7 @@ namespace BrokenPhone
                 controls.Choose = SmallButton(owned ? "Снять выбор" : owner == null ? "Выбрать роль" : "Занята", delegate { Send(new Message { kind = "role_select", id = roleName, flag = !owned }); });
                 controls.Choose.IsEnabled = manual && (owned || owner == null); controls.Choose.FontSize = 13; controls.Choose.Padding = new Thickness(12, 9, 12, 9);
                 controls.Choose.Background = Brush(owned ? "#99D8B0" : "#2C3345"); controls.Choose.Foreground = Brush(owned ? "#16251E" : "#CDD2E5");
-                if (!manual) controls.Choose.Content = "Назначена автоматически";
+                if (!manual) controls.Choose.Content = pending ? "Ожидаем распределение" : "Назначена автоматически";
                 Grid.SetRow(controls.Choose, 4); body.Children.Add(controls.Choose); panel.Children.Add(card); roleControls.Add(roleName, controls);
             }
             UpdateRoleLayout(); C<ScrollViewer>("RolesScroll").ScrollToVerticalOffset(offset);

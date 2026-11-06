@@ -108,7 +108,7 @@ namespace BrokenPhone
                         bool hostLeft = state.players.Any(p => p.id == peer.Id && p.host);
                         peers.Remove(peer); state.players.RemoveAll(p => p.owner == peer.Id);
                         RoleCasting.Refresh(state);
-                        if (state.phase != "lobby") { state.phase = "lobby"; state.round = Guid.NewGuid().ToString("N"); Chat("Студия", "Игрок отключился. Раунд остановлен, записи сохранены."); }
+                        if (state.phase != "lobby") { state.phase = "lobby"; state.round = Guid.NewGuid().ToString("N"); RoleCasting.NewPack(state); Chat("Студия", "Игрок отключился. Раунд остановлен, записи сохранены."); }
                         if (hostLeft) { foreach (var other in peers.ToArray()) other.Socket.Close(); }
                         else Broadcast();
                     }
@@ -134,6 +134,12 @@ namespace BrokenPhone
         }
         void Host(Player player) { if (!player.host) throw new InvalidOperationException("Это действие доступно ведущему."); }
         void Lobby() { if (state.phase != "lobby") throw new InvalidOperationException("Сначала вернитесь в лобби."); }
+        void Casting() { if (state.phase != "casting") throw new InvalidOperationException("Выбор ролей начинается после «Начать игру»."); }
+        void CurrentCasting(Message message)
+        {
+            Casting();
+            if (message.round != state.round || message.index != state.roleVersion) throw new InvalidOperationException("Роли изменились. Проверь выбор и подтверди его заново.");
+        }
         void Active(Peer peer, Message message)
         {
             if (state.phase != "recording" || state.round != message.round || state.turn != message.index || state.Active == null || state.Active.owner != peer.Id)
@@ -152,9 +158,12 @@ namespace BrokenPhone
                         case "ping": peer.Send(new Message { kind = "pong", clientTime = message.clientTime, serverTime = Playback.Now }); return;
                         case "chat": Chat(player.name, Clean(message.text, 240, "…")); break;
                         case "rename": Lobby(); player.name = Clean(message.text, 64, "Игрок"); break;
-                        case "ready": Lobby(); if (message.flag && !RoleCasting.Complete(state)) throw new InvalidOperationException("Сначала распределите все роли."); player.ready = message.flag; break;
+                        case "ready": Lobby(); player.ready = message.flag; break;
+                        case "role_ready":
+                            CurrentCasting(message); if (message.flag && !RoleCasting.HasRole(state, player.id)) throw new InvalidOperationException("Сначала выбери свою роль.");
+                            player.ready = message.flag; break;
                         case "role_mode":
-                            Host(player); Lobby();
+                            Host(player); Casting();
                             if (message.text != "auto" && message.text != "manual") throw new InvalidOperationException("Неизвестный режим распределения ролей.");
                             if (state.roleMode == message.text) break;
                             state.roleMode = message.text;
@@ -162,7 +171,7 @@ namespace BrokenPhone
                             RoleCasting.Refresh(state);
                             Chat("Студия", state.roleMode == "manual" ? "Выбираем роли вручную. Можно взять несколько персонажей." : "Роли распределены автоматически по количеству реплик."); break;
                         case "role_select":
-                            Lobby(); if (state.roleMode != "manual") throw new InvalidOperationException("Ведущий должен включить ручной выбор ролей.");
+                            Casting(); if (state.roleMode != "manual") throw new InvalidOperationException("Ведущий должен включить ручной выбор ролей.");
                             var selectedRole = state.roles.FirstOrDefault(role => role.role == message.id);
                             if (selectedRole == null) throw new InvalidOperationException("Этой роли нет в выбранном паке.");
                             if (!String.IsNullOrEmpty(selectedRole.playerId) && selectedRole.playerId != player.id) throw new InvalidOperationException("Эту роль уже выбрал другой игрок.");
@@ -187,10 +196,16 @@ namespace BrokenPhone
                             Chat("Студия", "Выбран пак «" + pack.title + "»"); break;
                         case "start":
                             Host(player); Lobby(); if (state.players.Count < 2) throw new InvalidOperationException("Нужны хотя бы два игрока.");
-                            if (!RoleCasting.Complete(state)) throw new InvalidOperationException("Сначала распределите все роли.");
+                            if (state.roles.Count < state.players.Count) throw new InvalidOperationException("В паке меньше ролей, чем игроков. Выбери другой пак: каждому участнику нужна своя роль.");
                             if (state.players.Any(p => !p.ready)) throw new InvalidOperationException("Дождитесь готовности всех игроков.");
                             state.turn = 0; state.heard = true; state.performing = false; state.round = Guid.NewGuid().ToString("N"); takes.Clear(); resultFile = null;
                             state.resultReady = new string[0]; state.playbackVersion = 0; state.playing = false; state.playbackPosition = 0; state.resultDuration = 0;
+                            state.order = new string[0]; state.phase = "casting"; RoleCasting.NewPack(state);
+                            Chat("Студия", "Выбираем роли. Каждый участник должен подтвердить своего персонажа перед озвучкой."); break;
+                        case "cast_start":
+                            Host(player); CurrentCasting(message);
+                            if (!RoleCasting.Complete(state)) throw new InvalidOperationException("Распределите все роли: каждому игроку нужна хотя бы одна роль.");
+                            if (state.players.Any(p => !p.ready)) throw new InvalidOperationException("Дождитесь подтверждения ролей всеми игроками.");
                             state.order = RoleCasting.Order(state);
                             sessionFolder = Path.Combine(Paths.Sessions, state.round); Directory.CreateDirectory(sessionFolder);
                             File.WriteAllText(Path.Combine(sessionFolder, "pack.json"), Json.Write(pack));
@@ -206,7 +221,7 @@ namespace BrokenPhone
                             break;
                         case "pack_failed":
                             if (state.phase != "loading" || message.round != state.round) return;
-                            state.phase = "lobby"; foreach (var member in state.players) member.ready = false;
+                            state.phase = "lobby"; RoleCasting.NewPack(state);
                             Chat("Студия", player.name + ": не удалось подготовить пак. " + Clean(message.text, 160, "Попробуйте ещё раз.")); break;
                         case "heard": Active(peer, message); state.heard = true; break;
                         case "recording": Active(peer, message); state.performing = message.flag; break;
@@ -223,7 +238,7 @@ namespace BrokenPhone
                                 Task.Run(() => FinishRound(round, renderPack, renderTakes, output));
                             }
                             break;
-                        case "reset": Host(player); state.phase = "lobby"; state.performing = false; state.round = Guid.NewGuid().ToString("N"); foreach (var p in state.players) p.ready = false; break;
+                        case "reset": Host(player); state.phase = "lobby"; state.performing = false; state.round = Guid.NewGuid().ToString("N"); RoleCasting.NewPack(state); break;
                         case "result_ready":
                             if (state.phase != "result" || message.round != state.round) throw new InvalidOperationException("Этот просмотр уже завершён.");
                             if (!state.resultReady.Contains(peer.Id)) state.resultReady = state.resultReady.Concat(new[] { peer.Id }).ToArray();
@@ -300,7 +315,7 @@ namespace BrokenPhone
             lock (gate)
             {
                 if (disposed || state.round != round) return;
-                if (error != null) { state.phase = "lobby"; Chat("Студия", "Не удалось собрать видео: " + error + ". Записи сохранены."); }
+                if (error != null) { state.phase = "lobby"; RoleCasting.NewPack(state); Chat("Студия", "Не удалось собрать видео: " + error + ". Записи сохранены."); }
                 else { resultFile = output; state.phase = "result"; state.resultDuration = duration; state.resultReady = new string[0]; Chat("Студия", "Дубль смонтирован. Готовим общий просмотр…"); }
                 Broadcast();
             }

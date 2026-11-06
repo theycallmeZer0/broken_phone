@@ -82,42 +82,71 @@ namespace BrokenPhone
                 {
                     host.Client.Connect("127.0.0.1", server.Port, server.Code, "Ведущий", server.Secret); host.Wait(s => s.players.Count == 1);
                     guest.Client.Connect("127.0.0.1", server.Port, server.Code, "Друг", ""); host.Wait(s => s.players.Count == 2 && s.roles.Count == 3); guest.Wait(s => s.players.Count == 2);
-                    Check(host.State.roles.Sum(role => role.lines) == 4 && host.State.roles.First(role => role.role == "Режиссёр").lines == 2 && RoleCasting.Complete(host.State), "Неверные роли или количество реплик.");
+                    Check(host.State.phase == "lobby" && host.State.roleMode == "pending" && host.State.roles.All(role => String.IsNullOrEmpty(role.playerId)), "Роли назначены до начала игры.");
+                    Check(host.State.roles.Sum(role => role.lines) == 4 && host.State.roles.First(role => role.role == "Режиссёр").lines == 2, "Потеряны исходные роли или количество реплик.");
+                    host.Client.Send(new Message { kind = "role_mode", text = "manual" }); host.Error("Начать игру");
+                    guest.Client.Send(new Message { kind = "role_select", id = "Режиссёр", flag = true }); guest.Error("Начать игру");
+                    host.Client.Send(new Message { kind = "ready", flag = true }); guest.Client.Send(new Message { kind = "ready", flag = true }); host.Wait(s => s.players.All(player => player.ready));
+                    host.Client.Send(new Message { kind = "start" }); host.Wait(s => s.phase == "casting"); guest.Wait(s => s.phase == "casting");
+                    Check(host.State.roleMode == "pending" && host.State.order.Length == 0 && host.State.roles.All(role => String.IsNullOrEmpty(role.playerId)) && host.State.players.All(player => !player.ready), "Начало игры пропустило обязательный выбор.");
+                    host.Client.Send(CastMessage(host.State, "cast_start")); host.Error("каждому игроку");
+                    guest.Client.Send(CastMessage(host.State, "cast_start")); guest.Error("ведущему");
+                    guest.Client.Send(new Message { kind = "pack_ready", round = guest.State.round, id = guest.State.pack.contentKey });
+                    host.Client.Send(new Message { kind = "recording", round = host.State.round, index = 0, flag = true }); host.Error("другого игрока");
+                    guest.Client.Send(CastMessage(host.State, "role_ready")); guest.Error("свою роль");
+                    host.Client.Send(new Message { kind = "role_mode", text = "auto" }); host.Wait(s => s.roleMode == "auto" && RoleCasting.Complete(s));
+                    guest.Client.Send(new Message { kind = "ready", flag = true }); guest.Error("лобби");
                     Check(host.State.roles.Where(role => role.playerId == host.Client.Id).Sum(role => role.lines) == 2 && host.State.roles.Where(role => role.playerId == guest.Client.Id).Sum(role => role.lines) == 2, "Автоматическое распределение не учитывает количество реплик.");
+                    host.Client.Send(CastMessage(host.State, "role_ready")); host.Wait(s => s.players.First(player => player.host).ready);
+                    host.Client.Send(CastMessage(host.State, "cast_start")); host.Error("подтверждения");
+                    Check(host.State.phase == "casting", "Автоматический режим обошёл подтверждение гостя.");
+                    report.Add("PASS: lobby has no assigned roles; Start Game enters mandatory casting; pending, recording and pack-ready bypasses rejected; automatic assignment is balanced and requires participant confirmation");
                     guest.Client.Send(new Message { kind = "role_mode", text = "manual" }); guest.Error("ведущему");
                     host.Client.Send(new Message { kind = "role_mode", text = "manual" }); host.Wait(s => s.roleMode == "manual" && s.roles.All(role => String.IsNullOrEmpty(role.playerId))); guest.Wait(s => s.roleMode == "manual");
-                    host.Client.Send(new Message { kind = "ready", flag = true }); host.Error("все роли");
-                    host.Client.Send(new Message { kind = "start" }); host.Error("все роли");
                     guest.Client.Send(new Message { kind = "role_select", id = "Режиссёр", flag = true }); host.Wait(s => s.roles.First(role => role.role == "Режиссёр").playerId == guest.Client.Id);
                     host.Client.Send(new Message { kind = "role_select", id = "Режиссёр", flag = true }); host.Error("другой игрок");
                     host.Client.Send(new Message { kind = "role_select", id = "Актёр", flag = true }); guest.Client.Send(new Message { kind = "role_select", id = "Третий", flag = true }); host.Wait(RoleCasting.Complete);
-                    host.Client.Send(new Message { kind = "ready", flag = true }); guest.Client.Send(new Message { kind = "ready", flag = true }); host.Wait(s => s.players.All(player => player.ready));
+                    ConfirmCast(host, guest); Message staleConfirmation = CastMessage(host.State, "role_ready");
                     guest.Client.Send(new Message { kind = "role_select", id = "Третий", flag = false }); host.Wait(s => s.roles.First(role => role.role == "Третий").playerId == "" && s.players.All(player => !player.ready));
-                    host.Client.Send(new Message { kind = "role_select", id = "Третий", flag = true }); host.Wait(s => s.roles.First(role => role.role == "Третий").playerId == host.Client.Id);
-                    host.Client.Send(new Message { kind = "role_select", id = "Третий", flag = false }); host.Wait(s => s.roles.First(role => role.role == "Третий").playerId == "");
-                    guest.Client.Send(new Message { kind = "role_select", id = "Третий", flag = true }); host.Wait(s => RoleCasting.Complete(s) && s.roles.First(role => role.role == "Третий").playerId == guest.Client.Id);
-                    report.Add("PASS: real TCP clients share role counts and balanced automatic assignment; host controls mode; incomplete cast blocks ready/start; occupied roles cannot be stolen; release/reselection resets readiness");
-                    host.Client.Send(new Message { kind = "ready", flag = true }); guest.Client.Send(new Message { kind = "ready", flag = true }); host.Wait(s => s.players.All(player => player.ready));
+                    guest.Client.Send(staleConfirmation); guest.Error("изменились");
+                    guest.Client.Send(new Message { kind = "role_select", id = "Режиссёр", flag = false }); host.Wait(s => s.roles.First(role => role.role == "Режиссёр").playerId == "");
+                    host.Client.Send(new Message { kind = "role_select", id = "Режиссёр", flag = true }); host.Client.Send(new Message { kind = "role_select", id = "Третий", flag = true }); host.Wait(s => s.roles.All(role => role.playerId == host.Client.Id));
+                    Check(!RoleCasting.Complete(host.State), "Игрок без роли допущен как зритель.");
+                    guest.Client.Send(CastMessage(host.State, "role_ready")); guest.Error("свою роль");
+                    host.Client.Send(CastMessage(host.State, "cast_start")); host.Error("каждому игроку");
+                    host.Client.Send(new Message { kind = "role_select", id = "Режиссёр", flag = false }); host.Client.Send(new Message { kind = "role_select", id = "Третий", flag = false }); host.Wait(s => s.roles.Count(role => String.IsNullOrEmpty(role.playerId)) == 2);
+                    guest.Client.Send(new Message { kind = "role_select", id = "Режиссёр", flag = true }); guest.Client.Send(new Message { kind = "role_select", id = "Третий", flag = true }); host.Wait(RoleCasting.Complete);
+                    report.Add("PASS: manual ownership cannot be stolen; release/reselection clears confirmations and rejects stale confirmation messages; assigning all roles to one player cannot bypass the requirement that everyone owns a role");
+                    ConfirmCast(host, guest);
                     StartLoadedRound(host, guest);
-                    Check(host.State.order.SequenceEqual(new[] { guest.Client.Id, host.Client.Id, guest.Client.Id, guest.Client.Id }), "Очередь не соответствует выбранным ролям.");
+                    Check(host.State.order.SequenceEqual(new[] { guest.Client.Id, host.Client.Id, guest.Client.Id, guest.Client.Id }), "Очередь не соответствует подтверждённым ролям.");
                     host.Client.Send(new Message { kind = "recording", round = host.State.round, index = 0, flag = true }); host.Error("другого игрока");
                     for (int index = 0; index < 4; index++)
                     {
                         int turn = index; host.Wait(s => s.turn == turn); guest.Wait(s => s.turn == turn); var actor = host.State.Active.id == host.Client.Id ? host : guest;
-                        actor.Client.Send(new Message { kind = "take", round = actor.State.round, index = turn, data = Convert.ToBase64String(ToneWave(1, 330 + index * 110)) });
-                        host.Wait(s => s.turn > turn);
+                        actor.Client.Send(new Message { kind = "take", round = actor.State.round, index = turn, data = Convert.ToBase64String(ToneWave(1, 330 + index * 110)) }); host.Wait(s => s.turn > turn);
                     }
                     host.Wait(s => s.phase == "result"); guest.Wait(s => s.phase == "result");
                     string result = guest.Client.Asset("result", ".mp4").GetAwaiter().GetResult(); Check(new FileInfo(result).Length > 1000, "Гость не получил смонтированное видео.");
-                    report.Add("PASS: recording follows character ownership including consecutive turns for one actor; wrong actor rejected; all selected-role takes assembled into MP4 and delivered to guest");
-                    host.Client.Send(new Message { kind = "reset" }); host.Wait(s => s.phase == "lobby"); guest.Dispose(); host.Wait(s => s.players.Count == 1 && s.roles.All(role => role.playerId != guest.Client.Id));
-                    host.Client.Send(new Message { kind = "role_mode", text = "auto" }); host.Wait(s => s.roleMode == "auto" && s.roles.All(role => role.playerId == host.Client.Id));
-                    report.Add("PASS: disconnected actor releases roles; automatic mode reassigns every character to remaining participants");
+                    report.Add("PASS: confirmed casting proceeds through all-player loading; character ownership controls recording and complete MP4 delivery");
+                    host.Client.Send(new Message { kind = "reset" }); host.Wait(s => s.phase == "lobby" && s.roleMode == "pending" && s.roles.All(role => String.IsNullOrEmpty(role.playerId)));
+                    host.Client.Send(new Message { kind = "ready", flag = true }); guest.Client.Send(new Message { kind = "ready", flag = true }); host.Wait(s => s.players.All(player => player.ready));
+                    host.Client.Send(new Message { kind = "start" }); host.Wait(s => s.phase == "casting"); guest.Dispose(); host.Wait(s => s.phase == "lobby" && s.players.Count == 1 && s.roles.All(role => String.IsNullOrEmpty(role.playerId)));
+                    report.Add("PASS: replay and disconnect during casting return to a clean lobby with no role assignment");
                 }
-                return 0;
+                foreach (var line in pack.lines) line.role = "Одна роль"; PackContent.Describe(pack, System.Threading.CancellationToken.None);
+                using (var server = new RoomServer(pack, 0)) using (var host = new Inbox()) using (var guest = new Inbox())
+                {
+                    host.Client.Connect("127.0.0.1", server.Port, server.Code, "Ведущий", server.Secret); host.Wait(s => s.players.Count == 1);
+                    guest.Client.Connect("127.0.0.1", server.Port, server.Code, "Друг", ""); host.Wait(s => s.players.Count == 2);
+                    host.Client.Send(new Message { kind = "ready", flag = true }); guest.Client.Send(new Message { kind = "ready", flag = true }); host.Wait(s => s.players.All(player => player.ready));
+                    host.Client.Send(new Message { kind = "start" }); host.Error("меньше ролей"); Check(host.State.phase == "lobby", "Пак с нехваткой ролей создаёт незавершаемую игру.");
+                }
+                report.Add("PASS: a pack with fewer roles than participants is rejected before starting the game"); return 0;
             }
             catch (Exception error) { report.Add("FAIL: " + error); return 1; }
             finally { File.WriteAllLines(Path.Combine(Paths.Base, "roles-network-test.txt"), report); }
         }
+
     }
 }

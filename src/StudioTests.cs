@@ -40,6 +40,7 @@ namespace BrokenPhone
                 await Until(() => state.players.Count == 2 && other.Me != null, "Второе игровое окно не подключилось.");
                 B("ReadyButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); other.B("ReadyButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
                 await Until(() => state.players.All(p => p.ready), "Нет готовности игроков."); B("StartButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                await ConfirmAutomaticRoles(other);
                 await Until(() => sourcePrepared && other.sourcePrepared, "Видео не подготовилось в обоих окнах.");
                 if (window.FindName("SignalModeButton") != null || window.FindName("LinePrompt") != null) throw new Exception("В студии остались спектрограмма или подсказка для сцены.");
                 if (B("LobbyTab").IsEnabled || other.B("LobbyTab").IsEnabled || window.FindName("BackToLobbyButton") != null) throw new Exception("В активном раунде доступен возврат в лобби.");

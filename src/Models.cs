@@ -108,6 +108,7 @@ namespace BrokenPhone
         public List<ChatLine> chat { get; set; }
         public Pack pack { get; set; }
         public string roleMode { get; set; }
+        public int roleVersion { get; set; }
         public List<RoleAssignment> roles { get; set; }
         public int turn { get; set; }
         public bool heard { get; set; }
@@ -120,7 +121,7 @@ namespace BrokenPhone
         public long playbackAt { get; set; }
         public long serverTime { get; set; }
         public double resultDuration { get; set; }
-        public RoomState() { phase = "lobby"; players = new List<Player>(); chat = new List<ChatLine>(); order = new string[0]; resultReady = new string[0]; roleMode = "auto"; roles = new List<RoleAssignment>(); }
+        public RoomState() { phase = "lobby"; players = new List<Player>(); chat = new List<ChatLine>(); order = new string[0]; resultReady = new string[0]; roleMode = "pending"; roles = new List<RoleAssignment>(); }
         public Player Active { get { return turn < order.Length ? players.FirstOrDefault(p => p.id == order[turn]) : null; } }
     }
 
