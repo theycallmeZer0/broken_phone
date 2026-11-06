@@ -17,7 +17,7 @@ namespace BrokenPhone
             DateTime deadline = DateTime.UtcNow.AddSeconds(seconds);
             while (!condition()) { if (DateTime.UtcNow > deadline) throw new Exception(failure); await Task.Delay(40); }
         }
-        public async Task ScreeningSmoke(bool endOnly = false, bool steamTransport = false)
+        public async Task ScreeningSmoke(bool endOnly = false, bool steamTransport = false, bool checkSync = false)
         {
             Window otherWindow = null; GameWindow other = null; var report = new List<string>();
             try
@@ -30,6 +30,9 @@ namespace BrokenPhone
                     if (!steam.Available || String.IsNullOrWhiteSpace(profileName) || Me.name != profileName) throw new Exception("Имя игрока отличается от настоящего имени профиля Steam.");
                     OpenSettings(); if (!TBox("NameInput").IsReadOnly || TBox("NameInput").Text != profileName) throw new Exception("В настройках отображается локальное имя вместо профиля Steam.");
                     Page("Lobby"); report.Add("PASS: actual Steam profile name used in the network lobby and read-only profile field");
+                    await Until(() => Me.steamId == steam.UserId && steamAvatars.ContainsKey(steam.UserId), "Настоящая аватарка Steam не загрузилась в лобби.");
+                    if (!(Avatar(Me, 32).Child is Image)) throw new Exception("Вместо аватарки Steam отображается заглушка.");
+                    report.Add("PASS: actual Steam profile avatar loads asynchronously and replaces the lobby placeholder on App ID " + steam.AppId);
                 }
                 using (var stream = Assembly.GetExecutingAssembly().GetManifestResourceStream("MainWindow.xaml")) otherWindow = (Window)XamlReader.Load(stream);
                 otherWindow.ShowInTaskbar = false; otherWindow.WindowStartupLocation = WindowStartupLocation.Manual; otherWindow.Left = -10000;
@@ -40,7 +43,9 @@ namespace BrokenPhone
                 await Until(() => state.players.Count == 2 && other.Me != null, "Второе игровое окно не подключилось.");
                 B("ReadyButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); other.B("ReadyButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
                 await Until(() => state.players.All(p => p.ready), "Нет готовности игроков."); B("StartButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-                await ConfirmAutomaticRoles(other);
+                await StartAutomaticRoles(other);
+                if (steamTransport && !roleControls.Values.Any(card => card.Avatar != null && Object.Equals(card.Avatar.Tag, client.Id) && card.Avatar.Child is Image)) throw new Exception("Аватарка Steam не появилась в карточке выбранной роли.");
+                if (steamTransport) report.Add("PASS: the selected role displays the same real Steam avatar with a circular crop; profile Steam ID is visible to the connected peer");
                 await Until(() => sourcePrepared && other.sourcePrepared, "Видео не подготовилось в обоих окнах.");
                 if (window.FindName("SignalModeButton") != null || window.FindName("LinePrompt") != null) throw new Exception("В студии остались спектрограмма или подсказка для сцены.");
                 if (B("LobbyTab").IsEnabled || other.B("LobbyTab").IsEnabled || window.FindName("BackToLobbyButton") != null) throw new Exception("В активном раунде доступен возврат в лобби.");
@@ -63,10 +68,12 @@ namespace BrokenPhone
                 report.Add("PASS: all turns submitted using game controls without listening; real full-width waveform drawn; no spectrogram or scene hint");
                 await Until(() => state.phase == "result" && other.state.phase == "result" && finalMediaPrepared && other.finalMediaPrepared, "Финальное видео и звуковые дорожки не подготовились.");
                 var hostVideo = C<MediaElement>("Video"); var guestVideo = other.C<MediaElement>("Video");
+                if (checkSync && (hostVideo.Source.LocalPath != sourceFile || guestVideo.Source.LocalPath != other.sourceFile || finalVideoTask != null || other.finalVideoTask != null)) throw new Exception("SYNC: финальный просмотр повторно загружает полный MP4 вместо уже подготовленного локального видео.");
+                if (checkSync) report.Add("PASS: final viewing reuses the decoded local pack video; neither viewer automatically requests a full rendered MP4");
                 await Task.Delay(200); if (state.playbackVersion != 0 || state.playing || hostVideo.Position.TotalSeconds > .1) throw new Exception("Финальный просмотр запущен автоматически.");
                 C<Slider>("VolumeSlider").Value = 1; C<Slider>("ResultVoicesVolume").Value = .25; C<Slider>("ResultMovieVolume").Value = .8;
                 other.C<Slider>("VolumeSlider").Value = 1; other.C<Slider>("ResultVoicesVolume").Value = .9; other.C<Slider>("ResultMovieVolume").Value = .1;
-                if (Math.Abs(finalVoices.Volume - .25) > .001 || Math.Abs(finalMovie.Volume - .8) > .001 || Math.Abs(other.finalVoices.Volume - .9) > .001 || Math.Abs(other.finalMovie.Volume - .1) > .001 || hostVideo.Volume != 0 || guestVideo.Volume != 0) throw new Exception("Громкость фона и голосов не разделена или меняется у других участников.");
+                if (Math.Abs(finalVoiceGain - .25) > .001 || Math.Abs(finalMovieGain - .8) > .001 || Math.Abs(other.finalVoiceGain - .9) > .001 || Math.Abs(other.finalMovieGain - .1) > .001 || hostVideo.Volume != 0 || guestVideo.Volume != 0) throw new Exception("Громкость фона и голосов не разделена или меняется у других участников.");
                 C<Slider>("VolumeSlider").Value = 0; other.C<Slider>("VolumeSlider").Value = 0;
                 other.ResetFinalPlayer(); other.RenderRound();
                 if (!B("SubmitButton").IsEnabled || !other.B("SubmitButton").IsEnabled) throw new Exception("Скачивание MP4 доступно не всем или зависит от готовности плеера.");
@@ -80,14 +87,35 @@ namespace BrokenPhone
                 if (other.B("PauseButton").IsEnabled || other.C<Slider>("PlaybackSlider").IsEnabled) throw new Exception("Гость управляет общим просмотром.");
                 SaveScreen("screening-host-preview.png"); other.SaveScreen("screening-guest-preview.png");
                 report.Add("PASS: host starts manually without waiting for guest player; late decoder joins the current shared position; positions within 450 ms");
+                if (checkSync)
+                {
+                    await Until(() => playbackAppliedVersion == state.playbackVersion && other.playbackAppliedVersion == other.state.playbackVersion, "Поздний клиент не завершил подготовку кадра.");
+                    var offsets = new List<double>(); double audioError = 0;
+                    for (int sample = 0; sample < 16; sample++)
+                    {
+                        offsets.Add(Math.Abs(hostVideo.Position.TotalSeconds - guestVideo.Position.TotalSeconds));
+                        audioError = Math.Max(audioError, Math.Max(Math.Abs(FinalAudioPosition - hostVideo.Position.TotalSeconds), Math.Abs(other.FinalAudioPosition - guestVideo.Position.TotalSeconds)));
+                        await Task.Delay(100);
+                    }
+                    double typical = offsets.OrderBy(value => value).ElementAt(12), maximum = offsets.Max();
+                    if (typical > .18 || maximum > .32) throw new Exception("SYNC: устойчивое смещение плееров: p80=" + typical + ", max=" + maximum);
+                    if (audioError > .18) throw new Exception("SYNC: голоса отстают от видео на " + audioError);
+                    report.Add("PASS: late-client clock alignment over 16 real playback samples: p80=" + typical.ToString("0.000") + " s; max=" + maximum.ToString("0.000") + " s");
+                    report.Add("PASS: player voices stay aligned with the decoded video; maximum observed audio offset=" + audioError.ToString("0.000") + " s");
+                }
                 report.Add("PASS: every participant saves the same final MP4 even before local player readiness; separate movie and voice volumes are independent and local");
                 if (!endOnly)
                 {
                 int version = state.playbackVersion; B("PauseButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
                 await Until(() => state.playbackVersion > version && playbackAppliedVersion == state.playbackVersion && other.playbackAppliedVersion == state.playbackVersion, "Пауза не применена в обоих окнах.");
                 double pausedHost = hostVideo.Position.TotalSeconds, pausedGuest = guestVideo.Position.TotalSeconds; await Task.Delay(550);
-                if (Math.Abs(hostVideo.Position.TotalSeconds - pausedHost) > .1 || Math.Abs(guestVideo.Position.TotalSeconds - pausedGuest) > .1 || Math.Abs(pausedHost - pausedGuest) > .2) throw new Exception("Общая пауза не остановила оба видео.");
+                if (Math.Abs(hostVideo.Position.TotalSeconds - pausedHost) > .1 || Math.Abs(guestVideo.Position.TotalSeconds - pausedGuest) > .1 || Math.Abs(pausedHost - pausedGuest) > .2) throw new Exception("Общая пауза не остановила оба видео. Начальные позиции: " + pausedHost + " / " + pausedGuest);
                 version = state.playbackVersion; C<Slider>("PlaybackSlider").Value = 7;
+                if (checkSync)
+                {
+                    await Until(() => state.playbackVersion > version, "Команда перемотки не получена."); SyncPlayback();
+                    if (client.ServerNow < state.playbackAt && Math.Abs(hostVideo.Position.TotalSeconds - 7) > .15) throw new Exception("SYNC: кадр подготавливается только после общего времени старта, вызывая разную задержку декодеров.");
+                }
                 await Until(() => state.playbackVersion > version && playbackAppliedVersion == state.playbackVersion && other.playbackAppliedVersion == state.playbackVersion, "Перемотка не применена.");
                 if (Math.Abs(hostVideo.Position.TotalSeconds - 7) > .15 || Math.Abs(guestVideo.Position.TotalSeconds - 7) > .15) throw new Exception("Перемотка не выставила общую позицию.");
                 version = state.playbackVersion; B("PauseButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
@@ -103,10 +131,10 @@ namespace BrokenPhone
                 B("LobbyTab").RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); await Until(() => state.phase == "lobby" && other.state.phase == "lobby", "Нет возврата в лобби.");
                 report.Add("PASS: both windows return to lobby; recordings never open a physical microphone during this test");
             }
-            catch (Exception e) { report.Add("FAIL: " + e); if (state != null && other != null && other.state != null) report.Add("Playback state at failure: " + Json.Write(new { hostPosition = C<MediaElement>("Video").Position.TotalSeconds, guestPosition = other.C<MediaElement>("Video").Position.TotalSeconds, hostPlaying = state.playing, guestPlaying = other.state.playing, duration = state.resultDuration, natural = C<MediaElement>("Video").NaturalDuration.ToString(), version = state.playbackVersion, appliedHost = playbackAppliedVersion, appliedGuest = other.playbackAppliedVersion })); }
+            catch (Exception e) { report.Add("FAIL: " + e); if (state != null && other != null && other.state != null) report.Add("Playback state at failure: " + Json.Write(new { hostPosition = C<MediaElement>("Video").Position.TotalSeconds, guestPosition = other.C<MediaElement>("Video").Position.TotalSeconds, hostPlaying = state.playing, guestPlaying = other.state.playing, duration = state.resultDuration, natural = C<MediaElement>("Video").NaturalDuration.ToString(), version = state.playbackVersion, appliedHost = playbackAppliedVersion, appliedGuest = other.playbackAppliedVersion, hostPrepared = finalMediaPrepared, guestPrepared = other.finalMediaPrepared, hostVoices = FinalAudioPosition, guestVoices = other.FinalAudioPosition, hostMovie = FinalAudioPosition, guestMovie = other.FinalAudioPosition, hostNotice = C<TextBlock>("ToastText").Text, guestNotice = other.C<TextBlock>("ToastText").Text })); }
             finally
             {
-                File.WriteAllLines(System.IO.Path.Combine(Paths.Base, steamTransport ? "steam-screening-test.txt" : endOnly ? "end-test.txt" : "screening-test.txt"), report);
+                File.WriteAllLines(System.IO.Path.Combine(Paths.Base, checkSync ? "playback-sync-test.txt" : steamTransport ? "steam-screening-test.txt" : endOnly ? "end-test.txt" : "screening-test.txt"), report);
                 if (other != null) other.Dispose(); if (otherWindow != null) otherWindow.Close(); window.Close();
             }
         }

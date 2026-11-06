@@ -23,7 +23,7 @@ foreach ($name in @('ffmpeg', 'ffprobe')) {
 & (Join-Path $tools 'ffmpeg.exe') -version 2>&1 | Out-File -LiteralPath (Join-Path $release 'ThirdParty\FFmpeg-build.txt') -Encoding utf8
 & (Join-Path $tools 'ffmpeg.exe') -L 2>&1 | Out-File -LiteralPath (Join-Path $release 'ThirdParty\FFmpeg-license-notice.txt') -Encoding utf8
 if ($Verify) {
-    foreach ($check in @('self-test','role-lines-test','role-mix-test','roles-network-test','roles-ui-test','design-test','ui-smoke','input-ui-test','folder-packs-ui-test','pack-downloads-ui-test','pack-sync-test','microphone-ui-test','presentation-ui-test','screening-test')) {
+    foreach ($check in @('self-test','state-packets-test','role-lines-test','role-mix-test','roles-network-test','roles-ui-test','design-test','ui-smoke','input-ui-test','folder-packs-ui-test','pack-downloads-ui-test','pack-sync-test','microphone-ui-test','presentation-ui-test','turn-navigation-ui-test','empty-lobby-ui-test','screening-test','playback-sync-test')) {
         $process = Start-Process -FilePath (Join-Path $release 'BrokenPhone.exe') -ArgumentList ('--' + $check) -PassThru -Wait -WindowStyle Hidden
         $reportPath = Join-Path $release ($check + '.txt')
         if ($process.ExitCode -ne 0 -or !(Test-Path -LiteralPath $reportPath)) { throw ('Переносимая сборка не прошла проверку: ' + $check) }
@@ -41,6 +41,15 @@ if ($VerifySteam) {
         Write-Host $report
         if (!$report.StartsWith('PASS:') -or $report.Contains('FAIL:')) { throw ('Steam-проверка не пройдена: ' + $check.Argument) }
     }
+}
+$releaseRoot = [IO.Path]::GetFullPath($release).TrimEnd('\')
+$distributionRoot = [IO.Path]::GetFullPath((Join-Path $projectRoot 'dist')).TrimEnd('\')
+if (!$releaseRoot.StartsWith($distributionRoot + '\', [StringComparison]::OrdinalIgnoreCase)) { throw 'Папка выпуска должна находиться внутри dist проекта.' }
+$testAssets = [IO.Path]::GetFullPath((Join-Path $releaseRoot 'Assets\Demo'))
+if (!$testAssets.StartsWith($releaseRoot + '\', [StringComparison]::OrdinalIgnoreCase)) { throw 'Некорректная папка тестовых ресурсов.' }
+if (Test-Path -LiteralPath $testAssets) {
+    if ((Get-Item -LiteralPath $testAssets).Attributes -band [IO.FileAttributes]::ReparsePoint -or (Get-ChildItem -LiteralPath $testAssets -Recurse -Force | Where-Object { $_.Attributes -band [IO.FileAttributes]::ReparsePoint } | Select-Object -First 1)) { throw 'В тестовых ресурсах обнаружена ссылка.' }
+    Remove-Item -LiteralPath $testAssets -Recurse -Force
 }
 $items = @('BrokenPhone.exe', 'BrokenPhone.exe.config', 'steam_api64.dll', 'steam_appid.txt', 'Assets', 'tools', 'README.md', 'CONNECT.md', 'ThirdParty') | ForEach-Object { Join-Path $release $_ }
 $archive = Join-Path $projectRoot ('dist\' + $ReleaseName + '-Windows-x64.zip')

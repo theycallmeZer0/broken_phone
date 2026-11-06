@@ -17,7 +17,7 @@ namespace BrokenPhone
 
         public static void NewPack(RoomState state)
         {
-            state.roleMode = "pending";
+            state.roleMode = "manual";
             state.roleVersion = 0;
             state.roles = state.pack.lines.GroupBy(line => RoleName(line.role), StringComparer.Ordinal)
                 .Select(group => new RoleAssignment { role = group.Key, lines = group.Count(), playerId = "" }).ToList();
@@ -28,18 +28,21 @@ namespace BrokenPhone
         {
             if (state.phase == "casting") state.roleVersion++;
             foreach (var role in state.roles) if (!state.players.Any(player => player.id == role.playerId)) role.playerId = "";
-            if (state.phase == "casting" && state.roleMode == "auto")
-            {
-                var load = state.players.ToDictionary(player => player.id, player => 0);
-                var count = state.players.ToDictionary(player => player.id, player => 0);
-                foreach (var role in state.roles.OrderByDescending(role => role.lines))
-                {
-                    var selected = state.players.OrderBy(player => load[player.id]).ThenBy(player => count[player.id]).FirstOrDefault();
-                    role.playerId = selected == null ? "" : selected.id;
-                    if (selected != null) { load[selected.id] += role.lines; count[selected.id]++; }
-                }
-            }
             foreach (var player in state.players) player.ready = false;
+        }
+
+        public static void Automatic(RoomState state)
+        {
+            state.roleMode = "auto";
+            var load = state.players.ToDictionary(player => player.id, player => 0);
+            var count = state.players.ToDictionary(player => player.id, player => 0);
+            foreach (var role in state.roles.OrderByDescending(role => role.lines))
+            {
+                var selected = state.players.OrderBy(player => load[player.id]).ThenBy(player => count[player.id]).FirstOrDefault();
+                role.playerId = selected == null ? "" : selected.id;
+                if (selected != null) { load[selected.id] += role.lines; count[selected.id]++; }
+            }
+            Refresh(state);
         }
 
         public static bool Complete(RoomState state)
@@ -50,6 +53,13 @@ namespace BrokenPhone
         }
 
         public static bool HasRole(RoomState state, string playerId) { return !String.IsNullOrEmpty(playerId) && state.roles.Any(role => role.playerId == playerId); }
+
+        public static int BlockEnd(RoomState state)
+        {
+            int end = state.turn;
+            while (end + 1 < state.order.Length && state.order[end + 1] == state.order[state.turn]) end++;
+            return end;
+        }
 
         public static string[] Order(RoomState state)
         {

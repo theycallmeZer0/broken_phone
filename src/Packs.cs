@@ -69,6 +69,7 @@ namespace BrokenPhone
             double duration = Duration(video, cancellation);
             var pack = new Pack { id = String.IsNullOrEmpty(workshopId) ? Path.GetFileName(folder) : workshopId, workshopId = workshopId, video = video, root = folder,
                 title = Str(data, "title", "name"), description = Str(data, "description"), language = Str(data, "language") };
+            pack.isTestPack = data.ContainsKey("internal_test") && Convert.ToBoolean(data["internal_test"]);
             pack.sourceVideo = Str(data, "source_video"); pack.sourceBackground = Str(data, "source_background");
             pack.preparedVideoHash = Str(data, "prepared_video_hash"); pack.preparedSourceHash = Str(data, "prepared_source_hash");
             string originalName = Str(data, "original"); pack.original = String.IsNullOrEmpty(originalName) ? "" : SafePath(root, originalName);
@@ -289,7 +290,7 @@ namespace BrokenPhone
                 loaded.video = converted;
             }
             loaded.preparedVideoHash = PackContent.FileHash(loaded.video, cancellation); loaded.preparedSourceHash = loaded.sourceHash;
-            var canonical = new { title = loaded.title, description = loaded.description, language = loaded.language,
+            var canonical = new { internal_test = loaded.isTestPack, title = loaded.title, description = loaded.description, language = loaded.language,
                 video = PackSources.Relative(folder, loaded.video), background = String.IsNullOrEmpty(loaded.background) ? "" : PackSources.Relative(folder, loaded.background), lines = loaded.lines,
                 generated_timing = loaded.generatedTiming, merged_timing = loaded.mergedTiming, line_count = loaded.DisplayLines, role_count = loaded.DisplayRoles, preview = loaded.preview, thumbnail = loaded.thumbnail,
                 original = String.IsNullOrEmpty(loaded.original) ? "" : PackSources.Relative(folder, loaded.original), source_video = loaded.sourceVideo, source_background = loaded.sourceBackground,
@@ -319,13 +320,12 @@ namespace BrokenPhone
         public static List<Pack> Installed()
         {
             var packs = new List<Pack>();
-            string demo = Path.Combine(Paths.Base, "Assets", "Demo");
-            if (Directory.Exists(demo)) packs.Add(Load(demo, ""));
             foreach (var folder in Directory.GetDirectories(Paths.Packs).Where(p => !p.Contains("-import-")))
-                try { packs.Add(Load(folder, File.Exists(Path.Combine(folder, ".source")) ? File.ReadAllText(Path.Combine(folder, ".source")) : "")); }
+                try { var pack = Load(folder, File.Exists(Path.Combine(folder, ".source")) ? File.ReadAllText(Path.Combine(folder, ".source")) : ""); if (!pack.isTestPack && !(String.IsNullOrEmpty(pack.workshopId) && pack.title == "Не тот дубль" && pack.lines.Count == 4 && pack.DisplayRoles == 2)) packs.Add(pack); }
                 catch (Exception error) { System.Diagnostics.Trace.WriteLine(error); }
             return packs;
         }
+        public static Pack Empty() { return new Pack { id = "NoSelection", title = "Пак не выбран", description = "Выбери пак в мастерской, чтобы начать игру.", video = "", background = "", preview = "", thumbnail = "" }; }
     }
 
     public static class Tools

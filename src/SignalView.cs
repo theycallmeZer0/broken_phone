@@ -7,6 +7,9 @@ namespace BrokenPhone
     public sealed class SignalView : FrameworkElement
     {
         float[] envelope = new float[0];
+        float[] guide = new float[0];
+        public bool HasGuide { get { return guide.Length > 0; } }
+        public void SetGuide(float[] wave) { guide = wave ?? new float[0]; InvalidateVisual(); }
         double coverage = 1, cursor;
         bool recording;
         double timelinePoints;
@@ -30,6 +33,17 @@ namespace BrokenPhone
             var grid = new Pen(Color(62, 57, 83), 1);
             for (int i = 1; i < 8; i++) dc.DrawLine(grid, new Point(margin + plot * i / 8, margin), new Point(margin + plot * i / 8, h - margin));
             dc.DrawLine(grid, new Point(margin, center), new Point(w - margin, center));
+            if (guide.Length > 0)
+            {
+                int points = Math.Min(420, Math.Max(2, (int)plot)); var shape = new StreamGeometry();
+                using (var path = shape.Open())
+                {
+                    path.BeginFigure(new Point(margin, center), true, true);
+                    for (int i = 0; i < points; i++) path.LineTo(new Point(margin + plot * i / (points - 1), center - amplitude * Math.Sqrt(Math.Max(0, Math.Min(1, guide[Math.Min(guide.Length - 1, i * guide.Length / points)])))), true, false);
+                    for (int i = points - 1; i >= 0; i--) path.LineTo(new Point(margin + plot * i / (points - 1), center + amplitude * Math.Sqrt(Math.Max(0, Math.Min(1, guide[Math.Min(guide.Length - 1, i * guide.Length / points)])))), true, false);
+                }
+                shape.Freeze(); dc.DrawGeometry(Color(157, 147, 187, 65), new Pen(Color(166, 155, 196, 175), 1), shape);
+            }
             if (envelope.Length > 0)
             {
                 int points = Math.Min(420, Math.Max(1, (int)plot)); var shape = new StreamGeometry();
@@ -48,7 +62,7 @@ namespace BrokenPhone
                     for (int i = 0; i < visible; i++) path.LineTo(new Point(margin + plot * coverage * i / Math.Max(1, points - 1), center - amplitude * Math.Sqrt(Math.Max(0, Math.Min(1, peaks[i])))), true, false);
                     for (int i = visible - 1; i >= 0; i--) path.LineTo(new Point(margin + plot * coverage * i / Math.Max(1, points - 1), center + amplitude * Math.Sqrt(Math.Max(0, Math.Min(1, peaks[i])))), true, false);
                 }
-                shape.Freeze(); dc.DrawGeometry(Color(171, 146, 234, 115), new Pen(Color(184, 162, 246), 1.3), shape);
+                shape.Freeze(); dc.DrawGeometry(guide.Length == 0 ? Color(171, 146, 234, 115) : Color(123, 218, 174, 130), new Pen(guide.Length == 0 ? Color(184, 162, 246) : Color(153, 232, 190), 1.3), shape);
             }
             if (recording || cursor > 0)
             {

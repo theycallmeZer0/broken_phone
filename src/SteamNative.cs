@@ -38,6 +38,10 @@ namespace BrokenPhone
         [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)] [return: MarshalAs(UnmanagedType.I1)] internal static extern bool SteamAPI_ISteamUser_BLoggedOn(IntPtr self);
         [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)] internal static extern uint SteamAPI_ISteamUtils_GetAppID(IntPtr self);
         [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)] internal static extern IntPtr SteamAPI_ISteamFriends_GetPersonaName(IntPtr self);
+        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)] internal static extern int SteamAPI_ISteamFriends_GetLargeFriendAvatar(IntPtr self, ulong id);
+        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)] [return: MarshalAs(UnmanagedType.I1)] internal static extern bool SteamAPI_ISteamFriends_RequestUserInformation(IntPtr self, ulong id, [MarshalAs(UnmanagedType.I1)] bool nameOnly);
+        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)] [return: MarshalAs(UnmanagedType.I1)] internal static extern bool SteamAPI_ISteamUtils_GetImageSize(IntPtr self, int image, out uint width, out uint height);
+        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)] [return: MarshalAs(UnmanagedType.I1)] internal static extern bool SteamAPI_ISteamUtils_GetImageRGBA(IntPtr self, int image, [Out] byte[] destination, int bytes);
         [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)] internal static extern int SteamAPI_ISteamFriends_GetFriendCount(IntPtr self, int flags);
         [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)] internal static extern ulong SteamAPI_ISteamFriends_GetFriendByIndex(IntPtr self, int index, int flags);
         [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)] internal static extern IntPtr SteamAPI_ISteamFriends_GetFriendPersonaName(IntPtr self, ulong id);

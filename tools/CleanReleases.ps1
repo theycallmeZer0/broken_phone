@@ -1,10 +1,11 @@
-param([switch]$Publish, [switch]$Clean)
+param([switch]$Publish, [switch]$Clean, [string]$CurrentName = 'BrokenPhone')
 $ErrorActionPreference = 'Stop'
 $root = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..')).TrimEnd('\')
 $dist = Join-Path $root 'dist'
 $build = Join-Path $root 'build'
 $candidate = Join-Path $dist 'BrokenPhone-next'
-$current = Join-Path $dist 'BrokenPhone'
+if ($CurrentName -notmatch '^BrokenPhone(?:-\d+\.\d+)?$') { throw 'Некорректное имя папки выпуска.' }
+$current = Join-Path $dist $CurrentName
 $data = Join-Path $root 'UserData'
 $migration = Join-Path $data '_migration'
 function Assert-ChildPath([string]$Path) {
@@ -50,7 +51,8 @@ try {
     }
 } finally { $archive.Dispose() }
 $packRoots = @()
-foreach ($base in $bases | Sort-Object -Unique) { foreach ($relative in @('Packs','.runtime\packs')) { $folder = Join-Path $base $relative; if (Test-Path -LiteralPath $folder) { $packRoots += $folder } } }
+$packBases = if ($Publish) { @((Join-Path $build 'compile')) + @(Get-ChildItem -LiteralPath $dist -Directory | Where-Object { $_.Name -match '^BrokenPhone(?:-\d+\.\d+)?$' } | ForEach-Object FullName) } else { $bases }
+foreach ($base in $packBases | Sort-Object -Unique) { foreach ($relative in @('Packs','.runtime\packs')) { $folder = Join-Path $base $relative; if (Test-Path -LiteralPath $folder) { $packRoots += $folder } } }
 foreach ($folder in $packRoots | Sort-Object -Unique) {
     foreach ($pack in Get-ChildItem -LiteralPath $folder -Directory | Sort-Object LastWriteTime -Descending) {
         if ($pack.Name -like '*-import-*') { continue }
@@ -61,7 +63,7 @@ foreach ($folder in $packRoots | Sort-Object -Unique) {
 }
 $settings = @($bases | ForEach-Object { $path = Join-Path $_ '.runtime\settings.json'; if (Test-Path -LiteralPath $path) { Get-Item -LiteralPath $path } } | Sort-Object LastWriteTime -Descending | Select-Object -First 1)
 if ($Publish) {
-    $userSettings = @(@($current, (Join-Path $build 'compile')) | ForEach-Object { $path = Join-Path $_ '.runtime\settings.json'; if (Test-Path -LiteralPath $path) { Get-Item -LiteralPath $path } } | Sort-Object LastWriteTime -Descending | Select-Object -First 1)
+    $userSettings = @($packBases | ForEach-Object { $path = Join-Path $_ '.runtime\settings.json'; if (Test-Path -LiteralPath $path) { Get-Item -LiteralPath $path } } | Sort-Object LastWriteTime -Descending | Select-Object -First 1)
     if ($userSettings.Count) { $settings = $userSettings }
 }
 if ($settings.Count) { Copy-Item -LiteralPath $settings[0].FullName -Destination (Join-Path $migration 'settings.json') -Force }
@@ -71,7 +73,7 @@ if ($Publish) {
     if (!(Test-Path -LiteralPath (Join-Path $candidate 'BrokenPhone.exe'))) { throw 'Нет проверенной сборки BrokenPhone-next.' }
     $openCopies = @(Get-CimInstance Win32_Process -Filter "Name='BrokenPhone.exe'" | ForEach-Object ExecutablePath)
     if ($openCopies | Where-Object { $_ -and ($_.StartsWith($current + '\', [StringComparison]::OrdinalIgnoreCase) -or $_.StartsWith($candidate + '\', [StringComparison]::OrdinalIgnoreCase)) }) { throw 'Закрой запущенную основную копию игры, чтобы установить готовое обновление.' }
-    foreach ($report in @('self-test.txt','role-lines-test.txt','role-mix-test.txt','roles-network-test.txt','roles-ui-test.txt','input-ui-test.txt','folder-packs-ui-test.txt','pack-downloads-ui-test.txt','pack-sync-test.txt','presentation-ui-test.txt','screening-test.txt','steam-screening-test.txt')) {
+    foreach ($report in @('self-test.txt','state-packets-test.txt','role-lines-test.txt','role-mix-test.txt','roles-network-test.txt','roles-ui-test.txt','input-ui-test.txt','folder-packs-ui-test.txt','pack-downloads-ui-test.txt','pack-sync-test.txt','presentation-ui-test.txt','turn-navigation-ui-test.txt','empty-lobby-ui-test.txt','playback-sync-test.txt','screening-test.txt','steam-screening-test.txt')) {
         $text = Get-Content -LiteralPath (Join-Path $candidate $report) -Raw
         if (!$text.StartsWith('PASS:') -or $text.Contains('FAIL:')) { throw ('Не пройдена проверка: ' + $report) }
     }

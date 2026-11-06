@@ -43,6 +43,8 @@ namespace BrokenPhone
 
     public sealed class Pack
     {
+        public bool isTestPack { get; set; }
+        public bool Selected { get { return lines.Count > 0; } }
         public string id { get; set; }
         public string title { get; set; }
         public string description { get; set; }
@@ -90,6 +92,7 @@ namespace BrokenPhone
     public sealed class Player
     {
         public string id { get; set; }
+        public ulong steamId { get; set; }
         public string owner { get; set; }
         public string name { get; set; }
         public bool ready { get; set; }
@@ -130,13 +133,16 @@ namespace BrokenPhone
         public long serverTime { get; set; }
         public double resultDuration { get; set; }
         public string resultMovieKind { get; set; }
-        public RoomState() { phase = "lobby"; players = new List<Player>(); chat = new List<ChatLine>(); order = new string[0]; resultReady = new string[0]; roleMode = "pending"; roles = new List<RoleAssignment>(); }
+        public RoomState() { phase = "lobby"; players = new List<Player>(); chat = new List<ChatLine>(); order = new string[0]; resultReady = new string[0]; roleMode = "manual"; roles = new List<RoleAssignment>(); }
         public Player Active { get { return turn < order.Length ? players.FirstOrDefault(p => p.id == order[turn]) : null; } }
+        public RoomState ForPacket(bool includePack) { var copy = (RoomState)MemberwiseClone(); if (!includePack) copy.pack = null; return copy; }
     }
 
     public sealed class Message
     {
+        internal int wireBytes;
         public string kind { get; set; }
+        public ulong steamId { get; set; }
         public string id { get; set; }
         public string text { get; set; }
         public string code { get; set; }
