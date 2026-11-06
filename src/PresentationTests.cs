@@ -1,0 +1,53 @@
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Threading.Tasks;
+using System.Windows;
+using System.Windows.Controls;
+
+namespace BrokenPhone
+{
+    public sealed partial class GameWindow
+    {
+        static bool SameHistory(byte[] first, byte[] second, int width, int height)
+        {
+            for (int y = 0; y < height; y++) for (int x = 4; x < width / 8; x++)
+                for (int c = 0; c < 4; c++) if (first[(y * width + x) * 4 + c] != second[(y * width + x) * 4 + c]) return false;
+            return true;
+        }
+        void StableWave(SignalView graph, double seconds)
+        {
+            var wave = Enumerable.Range(0, 180).Select(i => i % 17 < 7 ? .07f : .75f).ToArray();
+            graph.UpdateLive(wave, seconds, seconds * .4); var initial = SignalPixels(graph);
+            graph.UpdateLive(wave, seconds, seconds * .47); var delayed = SignalPixels(graph);
+            if (!SameHistory(initial, delayed, (int)graph.ActualWidth, (int)graph.ActualHeight)) throw new Exception("История волны двигается между поступлениями звука.");
+            graph.UpdateLive(wave.Concat(Enumerable.Repeat(.3f, 120)).ToArray(), seconds, seconds * .6); var appended = SignalPixels(graph);
+            if (!SameHistory(initial, appended, (int)graph.ActualWidth, (int)graph.ActualHeight) || initial.SequenceEqual(appended)) throw new Exception("Живая волна смещает уже записанную часть или не показывает новые данные.");
+        }
+        public async Task PresentationSmoke()
+        {
+            var report = new List<string>(); RoomState original = state;
+            try
+            {
+                await Until(() => Me != null, "Нет лобби."); original = state;
+                OpenSettings(); C<Border>("MicrophoneCheckPanel").BringIntoView(); window.UpdateLayout(); StableWave(C<SignalView>("MicSignal"), 5);
+                state = Json.Read<RoomState>(Json.Write(original)); state.phase = "recording"; state.round = "presentation";
+                state.pack.lines = Enumerable.Range(0, 80).Select(i => new Line { start = i, end = i + 1, role = "Персонаж " + (i + 1), text = "Реплика" }).ToList();
+                state.order = Enumerable.Repeat(client.Id, 80).ToArray(); state.turn = 30;
+                Page("Round"); RenderRound(); window.UpdateLayout(); StableWave(C<SignalView>("Signal"), 5);
+                report.Add("PASS: studio and microphone-check live waveforms keep historical pixels fixed while time advances and new samples are appended; live signal remains animated");
+                var scroll = C<ScrollViewer>("VoiceChainScroll"); var rows = C<StackPanel>("TurnList");
+                if (rows.Children.Count != 80 || rows.Children.OfType<TextBlock>().Any(row => row.Text.Contains("… ещё")) || scroll.ScrollableHeight <= 0) throw new Exception("Цепочка голосов обрезана.");
+                scroll.ScrollToEnd(); window.UpdateLayout(); double offset = scroll.VerticalOffset;
+                if (offset <= 0) throw new Exception("Нельзя прокрутить полную цепочку.");
+                RenderRound(); window.UpdateLayout();
+                if (scroll.VerticalOffset < offset - 2) throw new Exception("Обновление записи сбрасывает прокрутку цепочки.");
+                SaveScreen("full-voice-chain-preview.png");
+                report.Add("PASS: all 80 dialogue rows remain accessible through scrolling, without a truncated summary; state refresh preserves scroll position");
+            }
+            catch (Exception error) { report.Add("FAIL: " + error); }
+            finally { state = original; File.WriteAllLines(System.IO.Path.Combine(Paths.Base, "presentation-ui-test.txt"), report); window.Close(); }
+        }
+    }
+}

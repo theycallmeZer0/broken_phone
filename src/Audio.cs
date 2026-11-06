@@ -74,12 +74,18 @@ namespace BrokenPhone
                 {
                     int next = 0;
                     var envelope = new List<float>();
+                    int waveSamples = 0; float wavePeak = 0;
                     Action<Header> consume = h =>
                     {
                         if (h.recorded == 0) return;
                         byte[] data = new byte[h.recorded]; Marshal.Copy(h.data, data, 0, data.Length); pcm.Write(data, 0, data.Length);
-                        int peak = 0; for (int s = 0; s + 1 < data.Length; s += 2) peak = Math.Max(peak, Math.Abs((int)BitConverter.ToInt16(data, s))); Level = peak / 32768f;
-                        envelope.AddRange(SignalAnalysis.Envelope(data, 16)); Waveform = envelope.ToArray();
+                        int peak = 0;
+                        for (int s = 0; s + 1 < data.Length; s += 2)
+                        {
+                            int sample = Math.Abs((int)BitConverter.ToInt16(data, s)); peak = Math.Max(peak, sample); wavePeak = Math.Max(wavePeak, sample / 32768f);
+                            if (++waveSamples == SignalAnalysis.SamplesPerPoint) { envelope.Add(wavePeak); wavePeak = 0; waveSamples = 0; }
+                        }
+                        Level = peak / 32768f; Waveform = envelope.ToArray();
                     };
                     try
                     {
@@ -177,6 +183,8 @@ namespace BrokenPhone
             if (seconds < .15 || seconds > limit + 1) throw new InvalidDataException("Длина записи не соответствует реплике.");
         }
         public static string N(double value) { return value.ToString("0.###", CultureInfo.InvariantCulture); }
+        public static string MovieAudio(Pack pack) { return !String.IsNullOrEmpty(pack.background) ? pack.background : !String.IsNullOrEmpty(pack.original) && File.Exists(pack.original) ? pack.original : ""; }
+        public static string MovieKind(Pack pack) { return !String.IsNullOrEmpty(pack.background) ? "background" : String.IsNullOrEmpty(MovieAudio(pack)) ? "none" : "original"; }
         public static void Render(Pack pack, string[] takes, string output)
         {
             double duration = PackLibrary.Duration(pack.video);
@@ -214,6 +222,10 @@ namespace BrokenPhone
             string filter = background ? "[1:a][2:a]amix=inputs=2:normalize=0,alimiter=limit=0.95,apad[mix]" : "[1:a]alimiter=limit=0.95,apad[mix]";
             args += " -filter_complex " + Tools.Quote(filter) + " -map 0:v:0 -map \"[mix]\" -c:v libx264 -preset fast -crf 21 -c:a aac -t " + N(duration) + " -movflags +faststart " + Tools.Quote(output);
             Tools.Run("ffmpeg", args, 600000);
+            string directory = Path.GetDirectoryName(output);
+            Tools.Run("ffmpeg", "-y -v error -i " + Tools.Quote(track) + " -af alimiter=limit=0.95,apad -t " + N(duration) + " -c:a aac -b:a 160k " + Tools.Quote(Path.Combine(directory, "result-voices.m4a")), 600000);
+            string movie = MovieAudio(pack), movieInput = String.IsNullOrEmpty(movie) ? "-f lavfi -i anullsrc=r=44100:cl=mono" : "-i " + Tools.Quote(movie);
+            Tools.Run("ffmpeg", "-y -v error " + movieInput + " -vn -af apad -t " + N(duration) + " -c:a aac -b:a 160k " + Tools.Quote(Path.Combine(directory, "result-movie.m4a")), 600000);
         }
     }
 }

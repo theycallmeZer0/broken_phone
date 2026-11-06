@@ -127,10 +127,12 @@ namespace BrokenPhone
                 string id = Path.GetFileName(source.TrimEnd(Path.DirectorySeparatorChar));
                 Pack original = PackLibrary.Load(source, id);
                 Check(!original.generatedTiming && original.lines.Count > 0, "Оригинальные таймкоды не прочитаны.");
-                Check(original.lines.Zip(original.lines.Skip(1), (a, b) => a.end <= b.start).All(x => x), "После адаптации остались пересечения.");
-                report.Add("PASS: original INI metadata: " + original.title + " / " + original.lines.Count + " sequential segments / first cue " + Audio.N(original.lines[0].start));
+                Check(original.lines.All(line => line.end > line.start && !String.IsNullOrWhiteSpace(line.role)) && original.lines.Zip(original.lines.Skip(1), (a, b) => a.start <= b.start).All(x => x), "Нарушены роли или порядок исходных реплик.");
+                report.Add("PASS: original INI metadata: " + original.title + " / " + original.lines.Count + " separate character cues / first cue " + Audio.N(original.lines[0].start));
                 Pack imported = PackLibrary.Import(source, id);
                 Check(imported.lines.Count == original.lines.Count && imported.lines[0].text == original.lines[0].text && Math.Abs(imported.lines.Last().end - original.lines.Last().end) < .001, "После импорта потеряны метаданные.");
+                Check(imported.lines.Zip(original.lines, (a, b) => a.role == b.role && Math.Abs(a.start - b.start) < .001 && Math.Abs(a.end - b.end) < .001).All(value => value), "После импорта изменены роли или таймкоды.");
+                Check(PackSources.Native(imported) && imported.sourceHash == original.sourceHash, "Изменился список исходных файлов после подготовки видео.");
                 Check(Path.GetExtension(imported.video) == ".mp4" && File.Exists(imported.background), "Нет MP4 или фоновой дорожки.");
                 Check(Math.Abs(PackLibrary.Duration(original.video) - PackLibrary.Duration(imported.video)) < .2, "После преобразования изменилась длина видео.");
                 report.Add("PASS: OGV -> H.264 MP4, original cues and separate OGG backing preserved");
@@ -235,16 +237,18 @@ namespace BrokenPhone
                     CheckMixedVoices(result, demo); results.Add("PASS: decoded final MP4 contains recorded voices at all four original cue positions");
                     string hostResult = host.Client.Asset("result", ".mp4").Result;
                     Check(File.ReadAllBytes(result).SequenceEqual(File.ReadAllBytes(hostResult)), "Игроки получили разные финальные видео.");
-                    guest.Client.Send(new Message { kind = "result_ready", round = guest.State.round }); host.Wait(s => s.resultReady.Length == 1);
-                    Check(host.State.playbackVersion == 0 && !host.State.playing, "Показ начался до готовности ведущего.");
-                    host.Client.Send(new Message { kind = "result_ready", round = host.State.round }); host.Wait(s => s.playbackVersion == 1); guest.Wait(s => s.playbackVersion == 1);
+                    host.Client.Send(new Message { kind = "result_ready", round = host.State.round }); host.Wait(s => s.resultReady.Length == 1);
+                    Check(host.State.playbackVersion == 0 && !host.State.playing, "Показ начался автоматически.");
+                    host.Client.Send(new Message { kind = "playback", text = "start", round = host.State.round }); host.Wait(s => s.playbackVersion == 1); guest.Wait(s => s.playbackVersion == 1);
+                    Check(!host.State.resultReady.Contains(guest.Client.Id), "Тест не проверяет запуск без готовности гостя.");
+                    guest.Client.Send(new Message { kind = "result_ready", round = guest.State.round }); host.Wait(s => s.resultReady.Length == 2);
                     Check(host.State.playing && host.State.playbackAt == guest.State.playbackAt && host.State.playbackAt > Playback.Now, "Нет общего запланированного старта.");
                     guest.Client.Send(new Message { kind = "playback", text = "pause", round = guest.State.round }); guest.Error("ведущему");
                     host.Client.Send(new Message { kind = "playback", text = "pause", round = host.State.round }); host.Wait(s => s.playbackVersion == 2); guest.Wait(s => s.playbackVersion == 2);
                     Check(!host.State.playing && !guest.State.playing && host.State.playbackPosition == guest.State.playbackPosition, "Пауза не синхронизирована.");
                     host.Client.Send(new Message { kind = "playback", text = "restart", round = host.State.round }); host.Wait(s => s.playbackVersion == 3); guest.Wait(s => s.playbackVersion == 3);
                     Check(host.State.playing && guest.State.playing && host.State.playbackPosition == 0 && host.State.playbackAt == guest.State.playbackAt, "Общий повтор не синхронизирован.");
-                    results.Add("PASS: identical final MP4 at both clients; automatic start waits for host and guests; host-only shared pause and replay");
+                    results.Add("PASS: both players download identical final MP4; host starts manually without guest readiness; late readiness does not restart playback; host-only pause and replay");
                     host.Client.Send(new Message { kind = "reset" }); host.Wait(s => s.phase == "lobby" && s.players.All(p => !p.ready)); results.Add("PASS: replay resets ready state");
                 }
                 bool badWave = false; try { Audio.Validate(new byte[100], 4); } catch (InvalidDataException) { badWave = true; } Check(badWave, "Некорректная запись отклонена"); results.Add("PASS: malformed audio rejected");

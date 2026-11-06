@@ -71,7 +71,7 @@ if ($Publish) {
     if (!(Test-Path -LiteralPath (Join-Path $candidate 'BrokenPhone.exe'))) { throw 'Нет проверенной сборки BrokenPhone-next.' }
     $openCopies = @(Get-CimInstance Win32_Process -Filter "Name='BrokenPhone.exe'" | ForEach-Object ExecutablePath)
     if ($openCopies | Where-Object { $_ -and ($_.StartsWith($current + '\', [StringComparison]::OrdinalIgnoreCase) -or $_.StartsWith($candidate + '\', [StringComparison]::OrdinalIgnoreCase)) }) { throw 'Закрой запущенную основную копию игры, чтобы установить готовое обновление.' }
-    foreach ($report in @('self-test.txt','role-lines-test.txt','role-mix-test.txt','roles-network-test.txt','roles-ui-test.txt','input-ui-test.txt','folder-packs-ui-test.txt','pack-downloads-ui-test.txt','screening-test.txt','steam-screening-test.txt')) {
+    foreach ($report in @('self-test.txt','role-lines-test.txt','role-mix-test.txt','roles-network-test.txt','roles-ui-test.txt','input-ui-test.txt','folder-packs-ui-test.txt','pack-downloads-ui-test.txt','pack-sync-test.txt','presentation-ui-test.txt','screening-test.txt','steam-screening-test.txt')) {
         $text = Get-Content -LiteralPath (Join-Path $candidate $report) -Raw
         if (!$text.StartsWith('PASS:') -or $text.Contains('FAIL:')) { throw ('Не пройдена проверка: ' + $report) }
     }

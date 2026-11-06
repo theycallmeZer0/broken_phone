@@ -40,6 +40,7 @@ namespace BrokenPhone
 
     public static class SignalAnalysis
     {
+        public const int SamplesPerPoint = 256;
         public static float[] Envelope(byte[] pcm, int points)
         {
             var result = new float[points]; int samples = pcm.Length / 2;

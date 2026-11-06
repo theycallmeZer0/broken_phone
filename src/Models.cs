@@ -61,11 +61,18 @@ namespace BrokenPhone
         public string backgroundHash { get; set; }
         public long videoBytes { get; set; }
         public long backgroundBytes { get; set; }
+        public string sourceRoot { get; set; }
+        public string sourceHash { get; set; }
+        public string sourceVideo { get; set; }
+        public string sourceBackground { get; set; }
+        public string preparedVideoHash { get; set; }
+        public string preparedSourceHash { get; set; }
+        public List<PackSourceFile> sourceFiles { get; set; }
         public List<SourceCue> sourceCues { get; set; }
         public bool generatedTiming { get; set; }
         public bool mergedTiming { get; set; }
         public List<Line> lines { get; set; }
-        public Pack() { lines = new List<Line>(); sourceCues = new List<SourceCue>(); language = "Russian"; }
+        public Pack() { lines = new List<Line>(); sourceCues = new List<SourceCue>(); sourceFiles = new List<PackSourceFile>(); language = "Russian"; }
         public int DisplayLines { get { return lineCount > 0 ? lineCount : lines.Count; } }
         public int DisplayRoles { get { return roleCount > 0 ? roleCount : lines.Select(l => l.role).Where(r => !String.IsNullOrWhiteSpace(r)).Distinct().Count(); } }
         public Pack PublicCopy()
@@ -74,6 +81,7 @@ namespace BrokenPhone
             copy.video = "video.mp4";
             copy.root = "";
             copy.original = ""; copy.sourceCues = new List<SourceCue>();
+            copy.sourceRoot = ""; copy.preparedVideoHash = ""; copy.preparedSourceHash = "";
             copy.background = String.IsNullOrEmpty(background) ? "" : "background.wav";
             return copy;
         }
@@ -121,6 +129,7 @@ namespace BrokenPhone
         public long playbackAt { get; set; }
         public long serverTime { get; set; }
         public double resultDuration { get; set; }
+        public string resultMovieKind { get; set; }
         public RoomState() { phase = "lobby"; players = new List<Player>(); chat = new List<ChatLine>(); order = new string[0]; resultReady = new string[0]; roleMode = "pending"; roles = new List<RoleAssignment>(); }
         public Player Active { get { return turn < order.Length ? players.FirstOrDefault(p => p.id == order[turn]) : null; } }
     }

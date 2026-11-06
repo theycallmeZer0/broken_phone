@@ -23,7 +23,7 @@ foreach ($name in @('ffmpeg', 'ffprobe')) {
 & (Join-Path $tools 'ffmpeg.exe') -version 2>&1 | Out-File -LiteralPath (Join-Path $release 'ThirdParty\FFmpeg-build.txt') -Encoding utf8
 & (Join-Path $tools 'ffmpeg.exe') -L 2>&1 | Out-File -LiteralPath (Join-Path $release 'ThirdParty\FFmpeg-license-notice.txt') -Encoding utf8
 if ($Verify) {
-    foreach ($check in @('self-test','role-lines-test','role-mix-test','roles-network-test','roles-ui-test','design-test','ui-smoke','input-ui-test','folder-packs-ui-test','pack-downloads-ui-test','microphone-ui-test','screening-test')) {
+    foreach ($check in @('self-test','role-lines-test','role-mix-test','roles-network-test','roles-ui-test','design-test','ui-smoke','input-ui-test','folder-packs-ui-test','pack-downloads-ui-test','pack-sync-test','microphone-ui-test','presentation-ui-test','screening-test')) {
         $process = Start-Process -FilePath (Join-Path $release 'BrokenPhone.exe') -ArgumentList ('--' + $check) -PassThru -Wait -WindowStyle Hidden
         $reportPath = Join-Path $release ($check + '.txt')
         if ($process.ExitCode -ne 0 -or !(Test-Path -LiteralPath $reportPath)) { throw ('Переносимая сборка не прошла проверку: ' + $check) }

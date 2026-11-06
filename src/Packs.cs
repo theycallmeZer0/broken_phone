@@ -69,6 +69,8 @@ namespace BrokenPhone
             double duration = Duration(video, cancellation);
             var pack = new Pack { id = String.IsNullOrEmpty(workshopId) ? Path.GetFileName(folder) : workshopId, workshopId = workshopId, video = video, root = folder,
                 title = Str(data, "title", "name"), description = Str(data, "description"), language = Str(data, "language") };
+            pack.sourceVideo = Str(data, "source_video"); pack.sourceBackground = Str(data, "source_background");
+            pack.preparedVideoHash = Str(data, "prepared_video_hash"); pack.preparedSourceHash = Str(data, "prepared_source_hash");
             string originalName = Str(data, "original"); pack.original = String.IsNullOrEmpty(originalName) ? "" : SafePath(root, originalName);
             if (!File.Exists(pack.original)) pack.original = "";
             object sourceCues;
@@ -114,7 +116,19 @@ namespace BrokenPhone
             string background = Str(data, "background", "background_audio", "instrumental", "music");
             pack.background = String.IsNullOrEmpty(background) ? "" : SafePath(root, background);
             if (!File.Exists(pack.background)) pack.background = "";
-            string nativeMetadata = pack.mergedTiming ? Directory.GetFiles(folder, "_pack_info.ini", SearchOption.AllDirectories).FirstOrDefault() : Path.Combine(folder, "_pack_info.ini");
+            string nativeMetadata = Path.Combine(folder, "_pack_info.ini");
+            if (!File.Exists(nativeMetadata)) nativeMetadata = Directory.GetFiles(folder, "_pack_info.ini", SearchOption.AllDirectories).FirstOrDefault();
+            if (nativeMetadata != null && File.Exists(nativeMetadata))
+            {
+                pack.sourceRoot = Path.GetDirectoryName(nativeMetadata);
+                if (String.IsNullOrEmpty(pack.sourceVideo))
+                {
+                    string rawVideo = Path.Combine(pack.sourceRoot, "dub_video.ogv");
+                    if (!File.Exists(rawVideo)) rawVideo = Directory.GetFiles(pack.sourceRoot).FirstOrDefault(file => VideoExtensions.Contains(Path.GetExtension(file).ToLowerInvariant()) && Path.GetFileName(file) != "_brokenphone_video.mp4");
+                    if (rawVideo != null) pack.sourceVideo = PackSources.Relative(pack.sourceRoot, rawVideo);
+                }
+                if (!data.ContainsKey("source_background")) pack.sourceBackground = String.IsNullOrEmpty(pack.background) ? "" : PackSources.Relative(pack.sourceRoot, pack.background);
+            }
             if (pack.mergedTiming && (nativeMetadata == null || !File.Exists(nativeMetadata))) throw new InvalidDataException("Этот пак подготовлен старой версией с объединением реплик. Выбери исходную папку пака и подготовь его заново.");
             if ((pack.mergedTiming || pack.lineCount == 0 || pack.roleCount == 0 || pack.sourceCues.Count == 0) && nativeMetadata != null && File.Exists(nativeMetadata))
             {
@@ -180,6 +194,7 @@ namespace BrokenPhone
             var pack = new Pack { id = String.IsNullOrEmpty(workshopId) ? Path.GetFileName(folder) : workshopId, root = folder, workshopId = workshopId, video = video,
                 title = IniText(metadata, "title", Path.GetFileName(folder)), language = IniText(metadata, "language", ""), description = "Пак сообщества Dub Together" };
             string backing = Path.Combine(folder, "_backing_track.ogg"); pack.background = File.Exists(backing) ? backing : "";
+            pack.sourceRoot = folder; pack.sourceVideo = PackSources.Relative(folder, video); pack.sourceBackground = String.IsNullOrEmpty(pack.background) ? "" : PackSources.Relative(folder, pack.background);
             if (HasAudio(video, cancellation)) pack.original = video;
             var lines = new List<Line>();
             foreach (string file in Directory.GetFiles(folder, "*.ini").Where(p => !Path.GetFileName(p).StartsWith("_")).OrderBy(p => p, StringComparer.Ordinal))
@@ -243,19 +258,7 @@ namespace BrokenPhone
                     using (var input = File.OpenRead(source)) using (var output = File.Create(Path.Combine(stage, Path.GetFileName(source)))) Copy(input, output, cancellation);
                 else Extract(source, stage, cancellation);
                 cancellation.ThrowIfCancellationRequested();
-                Pack loaded = Load(stage, workshopId, cancellation);
-                if (Path.GetExtension(loaded.video).ToLowerInvariant() != ".mp4")
-                {
-                    string converted = Path.Combine(stage, "_brokenphone_video.mp4");
-                    Tools.Run("ffmpeg", "-y -v error -i " + Tools.Quote(loaded.video) + " -an -c:v libx264 -preset veryfast -crf 20 -pix_fmt yuv420p -movflags +faststart " + Tools.Quote(converted), 600000, cancellation);
-                    loaded.video = converted;
-                }
-                var canonical = new { id = key, title = loaded.title, description = loaded.description, language = loaded.language,
-                    video = loaded.video.Substring(stage.TrimEnd(Path.DirectorySeparatorChar).Length + 1), background = String.IsNullOrEmpty(loaded.background) ? "" : loaded.background.Substring(stage.TrimEnd(Path.DirectorySeparatorChar).Length + 1), lines = loaded.lines,
-                    generated_timing = loaded.generatedTiming, merged_timing = loaded.mergedTiming, line_count = loaded.DisplayLines, role_count = loaded.DisplayRoles, preview = loaded.preview, thumbnail = loaded.thumbnail,
-                    original = String.IsNullOrEmpty(loaded.original) ? "" : loaded.original.Substring(stage.TrimEnd(Path.DirectorySeparatorChar).Length + 1),
-                    source_cues = loaded.sourceCues.Select(c => new { key = c.key, file = c.file.Substring(stage.TrimEnd(Path.DirectorySeparatorChar).Length + 1), start = c.start, end = c.end }).ToArray() };
-                File.WriteAllText(Path.Combine(stage, "pack.json"), Json.Write(canonical));
+                PrepareFolder(stage, workshopId, cancellation);
                 cancellation.ThrowIfCancellationRequested();
                 if (Directory.Exists(destination)) Directory.Delete(destination, true);
                 Directory.Move(stage, destination);
@@ -263,6 +266,36 @@ namespace BrokenPhone
                 return Load(destination, workshopId);
             }
             finally { if (Directory.Exists(stage)) Directory.Delete(stage, true); }
+        }
+        public static Pack PrepareFolder(string folder, string workshopId, CancellationToken cancellation, Pack metadata = null)
+        {
+            Pack loaded = Load(folder, workshopId, cancellation);
+            if (metadata != null)
+            {
+                loaded.title = metadata.title; loaded.description = metadata.description; loaded.language = metadata.language;
+                loaded.lines = Json.Read<List<Line>>(Json.Write(metadata.lines)); loaded.lineCount = metadata.DisplayLines; loaded.roleCount = metadata.DisplayRoles;
+                loaded.preview = metadata.preview; loaded.thumbnail = metadata.thumbnail; loaded.generatedTiming = metadata.generatedTiming; loaded.mergedTiming = metadata.mergedTiming;
+                if (PackSources.Native(metadata))
+                {
+                    loaded.sourceVideo = metadata.sourceVideo; loaded.sourceBackground = metadata.sourceBackground;
+                    loaded.video = PackSources.SafeFile(loaded.sourceRoot, loaded.sourceVideo);
+                    loaded.background = String.IsNullOrEmpty(loaded.sourceBackground) ? "" : PackSources.SafeFile(loaded.sourceRoot, loaded.sourceBackground);
+                }
+            }
+            if (Path.GetExtension(loaded.video).ToLowerInvariant() != ".mp4")
+            {
+                string converted = Path.Combine(folder, "_brokenphone_video.mp4");
+                Tools.Run("ffmpeg", "-y -v error -i " + Tools.Quote(loaded.video) + " -an -c:v libx264 -preset veryfast -crf 20 -pix_fmt yuv420p -movflags +faststart " + Tools.Quote(converted), 600000, cancellation);
+                loaded.video = converted;
+            }
+            loaded.preparedVideoHash = PackContent.FileHash(loaded.video, cancellation); loaded.preparedSourceHash = loaded.sourceHash;
+            var canonical = new { title = loaded.title, description = loaded.description, language = loaded.language,
+                video = PackSources.Relative(folder, loaded.video), background = String.IsNullOrEmpty(loaded.background) ? "" : PackSources.Relative(folder, loaded.background), lines = loaded.lines,
+                generated_timing = loaded.generatedTiming, merged_timing = loaded.mergedTiming, line_count = loaded.DisplayLines, role_count = loaded.DisplayRoles, preview = loaded.preview, thumbnail = loaded.thumbnail,
+                original = String.IsNullOrEmpty(loaded.original) ? "" : PackSources.Relative(folder, loaded.original), source_video = loaded.sourceVideo, source_background = loaded.sourceBackground,
+                prepared_video_hash = loaded.preparedVideoHash, prepared_source_hash = loaded.preparedSourceHash,
+                source_cues = loaded.sourceCues.Select(c => new { key = c.key, file = PackSources.Relative(folder, c.file), start = c.start, end = c.end }).ToArray() };
+            File.WriteAllText(Path.Combine(folder, "pack.json"), Json.Write(canonical)); return Load(folder, workshopId, cancellation);
         }
         static void Copy(Stream input, Stream output, CancellationToken cancellation)
         {

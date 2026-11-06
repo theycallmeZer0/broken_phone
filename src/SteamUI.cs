@@ -86,7 +86,7 @@ namespace BrokenPhone
             Theme.ApplyWindow(popup);
             var panel = new StackPanel { Margin = new Thickness(22) }; popup.Content = new ScrollViewer { Content = panel, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
             panel.Children.Add(new TextBlock { Text = "Друзья в Steam", FontSize = 25, FontWeight = FontWeights.Bold, Margin = new Thickness(0, 0, 0, 12) });
-            panel.Children.Add(new TextBlock { Text = "Друг запускает Broken Phone 0.10, затем принимает приглашение. Нужен запущенный Steam; VPN не требуется.", Foreground = Brush("#AAB4CC"), TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 14) });
+            panel.Children.Add(new TextBlock { Text = "Друг запускает Broken Phone 0.11, затем принимает приглашение. Нужен запущенный Steam; VPN не требуется.", Foreground = Brush("#AAB4CC"), TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 14) });
             var copy = SmallButton("Копировать ссылку на комнату", Invite); copy.Margin = new Thickness(0, 0, 0, 14); panel.Children.Add(copy);
             var friends = steam.Friends();
             if (friends.Count == 0) panel.Children.Add(new TextBlock { Text = "Сейчас нет друзей онлайн. Можно отправить скопированную ссылку.", TextWrapping = TextWrapping.Wrap, Foreground = Brush("#AAB4CC") });

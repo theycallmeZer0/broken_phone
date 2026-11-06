@@ -22,7 +22,7 @@ namespace BrokenPhone
             Window otherWindow = null; GameWindow other = null; var report = new List<string>();
             try
             {
-                settings.Volume = 0; selectedEffect = 0; C<CheckBox>("NoiseGateCheck").IsChecked = false;
+                settings.Volume = 0; C<Slider>("VolumeSlider").Value = 0; selectedEffect = 0; C<CheckBox>("NoiseGateCheck").IsChecked = false;
                 await Until(() => Me != null, "Ведущий не подключился.");
                 if (steamTransport)
                 {
@@ -33,7 +33,7 @@ namespace BrokenPhone
                 }
                 using (var stream = Assembly.GetExecutingAssembly().GetManifestResourceStream("MainWindow.xaml")) otherWindow = (Window)XamlReader.Load(stream);
                 otherWindow.ShowInTaskbar = false; otherWindow.WindowStartupLocation = WindowStartupLocation.Manual; otherWindow.Left = -10000;
-                other = new GameWindow(otherWindow, false); other.settings.Name = "Сетевой друг"; other.settings.Volume = 0; other.selectedEffect = 0; other.C<CheckBox>("NoiseGateCheck").IsChecked = false;
+                other = new GameWindow(otherWindow, false); other.settings.Name = "Сетевой друг"; other.settings.Volume = 0; other.C<Slider>("VolumeSlider").Value = 0; other.selectedEffect = 0; other.C<CheckBox>("NoiseGateCheck").IsChecked = false;
                 otherWindow.Show();
                 if (steamTransport) { if (!steam.Available || !SteamRoute) throw new Exception("Лобби Steam не подготовилось в интерфейсе."); VerifySteamFriendsDialog(); report.Add("PASS: Steam friends dialog opens in dark theme without sending any invitations"); SaveScreen("steam-lobby-preview.png"); int port = steam.OpenTunnel(steam.UserId); await other.Connect("127.0.0.1", port, server.Code, "", steam.Invitation); }
                 else await other.Connect("127.0.0.1", server.Port, server.Code, "");
@@ -61,13 +61,26 @@ namespace BrokenPhone
                     await Until(() => state.turn > turn, "Дубль не отправлен кнопкой «Дальше».");
                 }
                 report.Add("PASS: all turns submitted using game controls without listening; real full-width waveform drawn; no spectrogram or scene hint");
-                await Until(() => state.phase == "result" && other.state.phase == "result" && finalMediaPrepared && other.finalMediaPrepared && state.playbackVersion > 0, "Общий просмотр не подготовился.");
+                await Until(() => state.phase == "result" && other.state.phase == "result" && finalMediaPrepared && other.finalMediaPrepared, "Финальное видео и звуковые дорожки не подготовились.");
                 var hostVideo = C<MediaElement>("Video"); var guestVideo = other.C<MediaElement>("Video");
-                await Until(() => hostVideo.Position.TotalSeconds > .4 && guestVideo.Position.TotalSeconds > .4, "Видео не запустилось автоматически у обоих.");
-                if (Math.Abs(hostVideo.Position.TotalSeconds - guestVideo.Position.TotalSeconds) > .45) throw new Exception("Финальный показ рассинхронизирован.");
+                await Task.Delay(200); if (state.playbackVersion != 0 || state.playing || hostVideo.Position.TotalSeconds > .1) throw new Exception("Финальный просмотр запущен автоматически.");
+                C<Slider>("VolumeSlider").Value = 1; C<Slider>("ResultVoicesVolume").Value = .25; C<Slider>("ResultMovieVolume").Value = .8;
+                other.C<Slider>("VolumeSlider").Value = 1; other.C<Slider>("ResultVoicesVolume").Value = .9; other.C<Slider>("ResultMovieVolume").Value = .1;
+                if (Math.Abs(finalVoices.Volume - .25) > .001 || Math.Abs(finalMovie.Volume - .8) > .001 || Math.Abs(other.finalVoices.Volume - .9) > .001 || Math.Abs(other.finalMovie.Volume - .1) > .001 || hostVideo.Volume != 0 || guestVideo.Volume != 0) throw new Exception("Громкость фона и голосов не разделена или меняется у других участников.");
+                C<Slider>("VolumeSlider").Value = 0; other.C<Slider>("VolumeSlider").Value = 0;
+                other.ResetFinalPlayer(); other.RenderRound();
+                if (!B("SubmitButton").IsEnabled || !other.B("SubmitButton").IsEnabled) throw new Exception("Скачивание MP4 доступно не всем или зависит от готовности плеера.");
+                string savedHost = System.IO.Path.Combine(Paths.Cache, "host-export-" + Guid.NewGuid().ToString("N") + ".mp4"), savedGuest = System.IO.Path.Combine(Paths.Cache, "guest-export-" + Guid.NewGuid().ToString("N") + ".mp4");
+                try { await SaveFinalVideo(savedHost); await other.SaveFinalVideo(savedGuest); if (!File.ReadAllBytes(savedHost).SequenceEqual(File.ReadAllBytes(savedGuest))) throw new Exception("Участники сохраняют разные MP4."); }
+                finally { if (File.Exists(savedHost)) File.Delete(savedHost); if (File.Exists(savedGuest)) File.Delete(savedGuest); }
+                B("ListenButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); await Until(() => state.playbackVersion > 0 && hostVideo.Position.TotalSeconds > .4, "Ведущий не может запустить просмотр вручную.");
+                if (other.finalMediaPrepared) throw new Exception("Тест не имитирует позднюю подготовку гостя.");
+                await other.PrepareRound(); await Until(() => other.finalMediaPrepared && guestVideo.Position.TotalSeconds > .4, "Гость не подключился к уже идущему просмотру.");
+                await Until(() => Math.Abs(hostVideo.Position.TotalSeconds - guestVideo.Position.TotalSeconds) < .45, "Поздний участник не догнал общий просмотр.", 8);
                 if (other.B("PauseButton").IsEnabled || other.C<Slider>("PlaybackSlider").IsEnabled) throw new Exception("Гость управляет общим просмотром.");
                 SaveScreen("screening-host-preview.png"); other.SaveScreen("screening-guest-preview.png");
-                report.Add("PASS: assembled final video autoplays in BOTH game windows with no playback clicks; positions within 450 ms");
+                report.Add("PASS: host starts manually without waiting for guest player; late decoder joins the current shared position; positions within 450 ms");
+                report.Add("PASS: every participant saves the same final MP4 even before local player readiness; separate movie and voice volumes are independent and local");
                 if (!endOnly)
                 {
                 int version = state.playbackVersion; B("PauseButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));

@@ -110,7 +110,7 @@ namespace BrokenPhone
         void RenderMicCapture(float[] wave, double elapsed, float level)
         {
             double position = Math.Min(1, elapsed / MicCheckSeconds);
-            C<SignalView>("MicSignal").Update(wave, position, position, true);
+            C<SignalView>("MicSignal").UpdateLive(wave, MicCheckSeconds, elapsed);
             Text("MicSignalTime", elapsed.ToString("0.0") + " / 5.0 с  ·  " + (level * 100).ToString("0") + "%");
         }
         void TickMicrophonePanel()

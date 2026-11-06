@@ -42,7 +42,8 @@ namespace BrokenPhone
                             player.Client.Send(new Message { kind = "take", round = player.State.round, index = i, data = Convert.ToBase64String(ToneWave(.6, 330 + i * 110)) }); host.Wait(s => s.turn > turn);
                         }
                         guest.Wait(s => s.phase == "result"); host.Wait(s => s.phase == "result"); string final = guest.Client.Asset("result", ".mp4").GetAwaiter().GetResult(); CheckMixedVoices(final, pack);
-                        guest.Client.Send(new Message { kind = "result_ready", round = guest.State.round }); host.Client.Send(new Message { kind = "result_ready", round = host.State.round }); guest.Wait(s => s.playbackVersion == 1);
+                        host.Client.Send(new Message { kind = "result_ready", round = host.State.round }); host.Wait(s => s.resultReady.Contains(host.Client.Id));
+                        Check(host.State.playbackVersion == 0, "Просмотр запущен автоматически."); host.Client.Send(new Message { kind = "playback", text = "start", round = host.State.round }); guest.Wait(s => s.playbackVersion == 1);
                         report.Add("PASS: source video, all four takes, assembled voiced MP4 and shared playback state transmitted through actual Steam SDK P2P");
                     }
                     steam.LeaveRoom(); Check(steam.LobbyId == 0, "Лобби Steam не закрыто.");

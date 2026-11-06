@@ -9,9 +9,16 @@ namespace BrokenPhone
         float[] envelope = new float[0];
         double coverage = 1, cursor;
         bool recording;
+        double timelinePoints;
+        public SignalView() { SnapsToDevicePixels = true; UseLayoutRounding = true; }
+        public void UpdateLive(float[] wave, double seconds, double positionSeconds)
+        {
+            envelope = wave ?? new float[0]; timelinePoints = Math.Max(1, seconds * 44100 / SignalAnalysis.SamplesPerPoint);
+            coverage = 1; cursor = Math.Max(0, Math.Min(1, positionSeconds / Math.Max(.01, seconds))); recording = true; InvalidateVisual();
+        }
         public void Update(float[] wave, double filled, double position, bool live)
         {
-            envelope = wave ?? new float[0]; coverage = Math.Max(0, Math.Min(1, filled)); cursor = Math.Max(0, Math.Min(1, position)); recording = live; InvalidateVisual();
+            envelope = wave ?? new float[0]; coverage = Math.Max(0, Math.Min(1, filled)); cursor = Math.Max(0, Math.Min(1, position)); recording = live; timelinePoints = 0; InvalidateVisual();
         }
         static SolidColorBrush Color(byte r, byte g, byte b, byte a = 255) { var brush = new SolidColorBrush(System.Windows.Media.Color.FromArgb(a, r, g, b)); brush.Freeze(); return brush; }
         protected override void OnRender(DrawingContext dc)
@@ -26,11 +33,20 @@ namespace BrokenPhone
             if (envelope.Length > 0)
             {
                 int points = Math.Min(420, Math.Max(1, (int)plot)); var shape = new StreamGeometry();
+                bool stable = recording && timelinePoints > 0;
+                double scale = stable ? timelinePoints / points : 1;
+                int visible = stable ? Math.Min(points, (int)(envelope.Length / scale)) : points;
+                var peaks = new float[visible];
+                for (int i = 0; i < visible; i++)
+                {
+                    if (!stable) peaks[i] = envelope[Math.Min(envelope.Length - 1, i * envelope.Length / points)];
+                    else for (int sample = (int)(i * scale); sample < Math.Min(envelope.Length, (int)((i + 1) * scale)); sample++) peaks[i] = Math.Max(peaks[i], envelope[sample]);
+                }
                 using (var path = shape.Open())
                 {
                     path.BeginFigure(new Point(margin, center), true, true);
-                    for (int i = 0; i < points; i++) path.LineTo(new Point(margin + plot * coverage * i / Math.Max(1, points - 1), center - amplitude * Math.Sqrt(Math.Max(0, Math.Min(1, envelope[Math.Min(envelope.Length - 1, i * envelope.Length / points)])))), true, false);
-                    for (int i = points - 1; i >= 0; i--) path.LineTo(new Point(margin + plot * coverage * i / Math.Max(1, points - 1), center + amplitude * Math.Sqrt(Math.Max(0, Math.Min(1, envelope[Math.Min(envelope.Length - 1, i * envelope.Length / points)])))), true, false);
+                    for (int i = 0; i < visible; i++) path.LineTo(new Point(margin + plot * coverage * i / Math.Max(1, points - 1), center - amplitude * Math.Sqrt(Math.Max(0, Math.Min(1, peaks[i])))), true, false);
+                    for (int i = visible - 1; i >= 0; i--) path.LineTo(new Point(margin + plot * coverage * i / Math.Max(1, points - 1), center + amplitude * Math.Sqrt(Math.Max(0, Math.Min(1, peaks[i])))), true, false);
                 }
                 shape.Freeze(); dc.DrawGeometry(Color(171, 146, 234, 115), new Pen(Color(184, 162, 246), 1.3), shape);
             }

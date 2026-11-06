@@ -25,17 +25,17 @@ namespace BrokenPhone
         void RenderRound()
         {
             bool loading = state.phase == "loading", result = state.phase == "result", rendering = state.phase == "rendering";
-            var main = C<Grid>("StudioMain"); main.RowDefinitions[1].Height = new GridLength(result || loading ? 515 : 370);
-            main.RowDefinitions[2].Height = new GridLength(result || loading ? 0 : 54); main.RowDefinitions[3].Height = new GridLength(result || loading ? 0 : 86); main.RowDefinitions[4].Height = new GridLength(result || loading ? 0 : 42); main.RowDefinitions[6].Height = new GridLength(result ? 37 : 0);
+            var main = C<Grid>("StudioMain"); main.RowDefinitions[1].Height = new GridLength(result ? 475 : loading ? 515 : 370);
+            main.RowDefinitions[2].Height = new GridLength(result || loading ? 0 : 54); main.RowDefinitions[3].Height = new GridLength(result || loading ? 0 : 86); main.RowDefinitions[4].Height = new GridLength(result || loading ? 0 : 42); main.RowDefinitions[6].Height = new GridLength(result ? 77 : 0);
             C<Grid>("SignalPanel").Visibility = result || loading ? Visibility.Collapsed : Visibility.Visible; C<Grid>("EffectsPanel").Visibility = result || loading ? Visibility.Collapsed : Visibility.Visible; C<Grid>("ResultTimeline").Visibility = result ? Visibility.Visible : Visibility.Collapsed;
             Text("RoundEyebrow", loading ? "ПОДГОТОВКА ПАКА / " + state.pack.title : result ? "ВАШ ОБЩИЙ ДУБЛЬ / " + state.pack.title : rendering ? "СОБИРАЕМ ОБЩИЙ ДУБЛЬ" : state.pack.title.ToUpperInvariant() + " / РЕПЛИКА " + (state.turn + 1) + " ИЗ " + state.order.Length);
             Text("RoundTitle", loading ? "Загружаем пак у всех игроков" : result ? "Смотрим вместе!" : rendering ? "Все голоса на месте." : IsTurn ? "Твой выход, " + state.Active.name + "!" : "У микрофона — " + (state.Active == null ? "…" : state.Active.name));
-            Text("TurnPrompt", loading ? "Озвучка начнётся автоматически, когда все будут готовы." : result ? (IsHost ? "Пауза, перемотка и повтор у ведущего синхронизируются у всех." : "Показ начнётся автоматически. Просмотром управляет ведущий.") : rendering ? "Сводим реплики с видео…" : IsTurn ? "Предыдущую реплику и оригинал можно прослушать по желанию. R — запись, Enter — дальше." : "Ждём твоего хода.");
+            Text("TurnPrompt", loading ? "Озвучка начнётся автоматически, когда все будут готовы." : result ? (IsHost ? "Пауза, перемотка и повтор у ведущего синхронизируются у всех." : "Ведущий запускает просмотр для всей комнаты.") : rendering ? "Сводим реплики с видео…" : IsTurn ? "Предыдущую реплику и оригинал можно прослушать по желанию. R — запись, Enter — дальше." : "Ждём твоего хода.");
             Text("VideoLabel", result ? "ГОТОВЫЙ ДУБЛЬ · ВСЕ ГОЛОСА" : "ОРИГИНАЛЬНЫЕ ГОЛОСА ВЫКЛЮЧЕНЫ");
             Text("RoleCaption", IsTurn ? (state.pack.lines[state.turn].role ?? "ТВОЯ РЕПЛИКА").ToUpperInvariant() : "СЕТЕВАЯ СТУДИЯ");
             Text("LineCaption", IsTurn ? state.pack.lines[state.turn].text : "");
-            B("ListenButton").Content = result ? "↻ Смотреть ещё раз" : "◀ Предыдущая";
-            B("ListenButton").IsEnabled = result ? IsHost && (state.playbackVersion > 0 || !preparingFinal) : IsTurn && state.turn > 0 && sourcePrepared && !microphone.Recording && !processingTake;
+            B("ListenButton").Content = result ? state.playbackVersion == 0 ? "▶ Запустить у всех" : "↻ Смотреть ещё раз" : "◀ Предыдущая";
+            B("ListenButton").IsEnabled = result ? IsHost && finalMediaPrepared : IsTurn && state.turn > 0 && sourcePrepared && !microphone.Recording && !processingTake;
             B("OriginalButton").Visibility = result || loading ? Visibility.Collapsed : Visibility.Visible;
             B("OriginalButton").IsEnabled = IsTurn && sourcePrepared && state.pack.lines[state.turn].originalAvailable && !microphone.Recording && !processingTake;
             B("OriginalButton").ToolTip = IsTurn && !state.pack.lines[state.turn].originalAvailable ? "В этом паке нет исходного звука реплики" : "Прослушать исходную реплику — необязательно";
@@ -43,7 +43,7 @@ namespace BrokenPhone
             B("RecordButton").IsEnabled = IsTurn && sourcePrepared && !recordPending && !processingTake;
             B("RecordButton").Content = microphone.Recording ? "■ Стоп" : rawTake != null ? "● Перезапись" : "● Запись";
             B("ReviewButton").Visibility = result || loading ? Visibility.Collapsed : Visibility.Visible; B("ReviewButton").IsEnabled = IsTurn && take != null && !microphone.Recording && !processingTake;
-            B("SubmitButton").Content = result ? "↓ Сохранить MP4" : "Дальше ▶"; B("SubmitButton").IsEnabled = result ? finalFile != null : IsTurn && take != null && !microphone.Recording && !processingTake && !recordPending;
+            B("SubmitButton").Content = result ? savingFinal ? "↓ Сохраняем…" : "↓ Скачать MP4" : "Дальше ▶"; B("SubmitButton").IsEnabled = result ? !savingFinal : IsTurn && take != null && !microphone.Recording && !processingTake && !recordPending;
             B("PauseButton").Visibility = result ? Visibility.Visible : Visibility.Collapsed; B("PauseButton").IsEnabled = IsHost && state.playbackVersion > 0 && finalMediaPrepared; B("PauseButton").Content = state.playing ? "Ⅱ Пауза у всех" : "▶ Продолжить";
             C<StackPanel>("RoundActions").Visibility = !loading && (result || IsTurn) ? Visibility.Visible : Visibility.Collapsed;
             C<Slider>("PlaybackSlider").IsEnabled = IsHost && state.playbackVersion > 0 && finalMediaPrepared;
@@ -64,26 +64,24 @@ namespace BrokenPhone
             else if (rendering) { Text("WaitingTitle", "Собираем общий дубль"); Text("WaitingDetail", "Все реплики записаны. Ведущий монтирует видео со всеми голосами."); Text("WaitingPosition", "Просмотр откроется автоматически у всех."); }
             else if (result && (!finalMediaPrepared || state.playbackVersion == 0))
             {
-                Text("WaitingTitle", finalMediaPrepared ? "Скоро общий просмотр" : "Загружаем готовое видео");
-                Text("WaitingDetail", "Готово к показу: " + state.resultReady.Length + " из " + state.players.Count + ".");
-                Text("WaitingPosition", "Ждём готовности ведущего и остальных игроков — старт будет общим.");
+                Text("WaitingTitle", finalMediaPrepared ? "Видео готово к просмотру" : "Загружаем готовое видео");
+                Text("WaitingDetail", IsHost ? "Нажми «Запустить у всех», когда захочешь начать просмотр." : "Просмотром управляет ведущий.");
+                Text("WaitingPosition", finalMediaPrepared ? "MP4 можно скачать отдельно от просмотра." : "После загрузки подключимся к общему просмотру.");
             }
             var dots = C<StackPanel>("LineDots"); dots.Children.Clear();
             for (int i = 0; i < Math.Min(32, state.order.Length); i++) dots.Children.Add(new System.Windows.Shapes.Ellipse { Width = 5, Height = 5, Margin = new Thickness(0, 0, 6, 0), Fill = Brush(i < state.turn ? "#99D8B0" : i == state.turn ? "#EFC75E" : "#40485F") });
-            var turns = C<StackPanel>("TurnList"); turns.Children.Clear();
+            var turns = C<StackPanel>("TurnList"); var chainScroll = C<ScrollViewer>("VoiceChainScroll"); double chainOffset = chainScroll.VerticalOffset; turns.Children.Clear();
             if (loading)
                 foreach (var player in state.players) turns.Children.Add(new TextBlock { Text = (player.prepared ? "✓ " : "⇩ ") + player.name + " · " + (player.downloadProgress * 100).ToString("0") + "%\n" + (player.loadStatus ?? "Ожидаем"), TextWrapping = TextWrapping.Wrap, FontSize = 12, Margin = new Thickness(0, 8, 0, 8), Foreground = Brush(player.prepared ? "#99D8B0" : "#AAB4CC") });
-            else if (result)
-                foreach (var player in state.players) turns.Children.Add(new TextBlock { Text = "✓  " + player.name + " · " + state.order.Count(id => id == player.id) + " репл.", FontSize = 13, Margin = new Thickness(0, 8, 0, 8), Foreground = Brush("#99D8B0") });
             else
             {
-                for (int i = 0; i < Math.Min(state.order.Length, 11); i++)
+                for (int i = 0; i < state.order.Length; i++)
                 {
                     var player = state.players.FirstOrDefault(p => p.id == state.order[i]); string label = (i + 1) + ". " + (player == null ? "Игрок" : player.name) + " · " + state.pack.lines[i].role;
-                    turns.Children.Add(new TextBlock { Text = (i < state.turn ? "✓  " : i == state.turn ? "●  " : "○  ") + label, ToolTip = label, TextTrimming = TextTrimming.CharacterEllipsis, FontSize = 12, Margin = new Thickness(0, 7, 0, 7), FontWeight = i == state.turn ? FontWeights.Bold : FontWeights.Normal, Foreground = Brush(i < state.turn ? "#99D8B0" : "#AAB4CC") });
+                    turns.Children.Add(new TextBlock { Text = (i < state.turn ? "✓  " : i == state.turn ? "●  " : "○  ") + label, ToolTip = label, TextWrapping = TextWrapping.Wrap, FontSize = 12, Margin = new Thickness(0, 7, 0, 7), FontWeight = i == state.turn ? FontWeights.Bold : FontWeights.Normal, Foreground = Brush(i < state.turn ? "#99D8B0" : "#AAB4CC") });
                 }
-                if (state.order.Length > 11) turns.Children.Add(new TextBlock { Text = "… ещё " + (state.order.Length - 11) + " реплик", Foreground = Brush("#858478"), FontSize = 11 });
             }
+            chainScroll.ScrollToVerticalOffset(chainOffset);
             C<TextBlock>("RecordingTimer").Foreground = Brush(take != null ? "#99D8B0" : processingTake ? "#BDAAFF" : "#F78781");
             UpdateEffects(); C<TextBlock>("TurnPrompt").Visibility = String.IsNullOrEmpty(C<TextBlock>("RecordingTimer").Text) || result ? Visibility.Visible : Visibility.Collapsed;
         }
@@ -96,9 +94,7 @@ namespace BrokenPhone
                 preparingFinal = true; finalLoadingRound = round;
                 try
                 {
-                    string file = finalFile ?? await room.Asset("result", ".mp4"); if (room != client || state.round != round || state.phase != "result") return;
-                    finalFile = file; finalMediaPrepared = false; videoMode = "result"; videoRound = round; playbackAppliedVersion = 0; endedPlaybackVersion = 0;
-                    var video = C<MediaElement>("Video"); video.Source = new Uri(file); video.Volume = settings.Volume; video.Pause(); RenderRound();
+                    await PrepareFinalMedia(room, round);
                 }
                 finally { if (finalLoadingRound == round) preparingFinal = false; }
                 return;
@@ -193,28 +189,30 @@ namespace BrokenPhone
         {
             if (state.phase == "result")
             {
-                if (finalFile == null) return; var picker = new Microsoft.Win32.SaveFileDialog { Filter = "Видео MP4|*.mp4", FileName = "Broken Phone - " + DateTime.Now.ToString("yyyy-MM-dd HH-mm") + ".mp4", InitialDirectory = Paths.Exports };
-                if (picker.ShowDialog(window) == true) { File.Copy(finalFile, picker.FileName, true); Toast("Общий дубль сохранён: " + picker.FileName); } return;
+                var picker = new Microsoft.Win32.SaveFileDialog { Filter = "Видео MP4|*.mp4", FileName = "Broken Phone - " + DateTime.Now.ToString("yyyy-MM-dd HH-mm") + ".mp4", InitialDirectory = Paths.Exports };
+                if (picker.ShowDialog(window) == true) await SaveFinalVideo(picker.FileName); return;
             }
             if (take == null || !IsTurn || processingTake || state.turn != expectedTurn || state.round != expectedRound) return;
             voice.Stop(); voiceRevision++; playbackFinished = null; playbackEnd = DateTime.MinValue; voicePlaying = false; recordPending = true; RenderRound(); var room = client;
             try { byte[] bytes = take; int turn = expectedTurn; string round = expectedRound; await Task.Run(() => room.Send(new Message { kind = "take", data = Convert.ToBase64String(bytes), index = turn, round = round })); }
             finally { recordPending = false; if (state != null && state.phase != "lobby") RenderRound(); }
         }
-        void ControlPlayback(string action, double position) { if (IsHost && state.phase == "result" && state.playbackVersion > 0) Send(new Message { kind = "playback", text = action, position = position, round = state.round }); }
+        void ControlPlayback(string action, double position) { if (IsHost && state.phase == "result" && finalMediaPrepared) Send(new Message { kind = "playback", text = state.playbackVersion == 0 ? "start" : action, position = position, round = state.round }); }
         void SyncPlayback()
         {
-            if (state == null || state.phase != "result" || !finalMediaPrepared || state.playbackVersion == 0 || client == null) return;
+            if (state == null || state.phase != "result" || currentPage != "Round" || !finalMediaPrepared || state.playbackVersion == 0 || client == null) return;
             long now = client.ServerNow; if (now < state.playbackAt) return; var video = C<MediaElement>("Video"); double target = Playback.Position(state, now);
             if (playbackAppliedVersion != state.playbackVersion)
             {
                 if (!state.playing) video.Pause();
                 video.Position = TimeSpan.FromSeconds(Math.Min(target, Math.Max(0, state.resultDuration - .04)));
                 if (state.playing) video.Play();
+                SyncFinalAudio(Math.Min(target, Math.Max(0, state.resultDuration - .04)), state.playing, true);
                 playbackAppliedVersion = state.playbackVersion; lastPlaybackCheck = now;
             }
             else if (now - lastPlaybackCheck > 500 && state.playing && endedPlaybackVersion != state.playbackVersion)
             {
+                SyncFinalAudio(target, state.playing, false);
                 if (Math.Abs(video.Position.TotalSeconds - target) > .25) video.Position = TimeSpan.FromSeconds(Math.Min(target, Math.Max(0, state.resultDuration - .04)));
                 lastPlaybackCheck = now;
             }
@@ -233,7 +231,7 @@ namespace BrokenPhone
             if (microphone.Recording)
             {
                 double elapsed = (DateTime.UtcNow - recordStart).TotalSeconds;
-                C<SignalView>("Signal").Update(microphone.Waveform, elapsed / recordDuration, elapsed / recordDuration, true);
+                C<SignalView>("Signal").UpdateLive(microphone.Waveform, recordDuration, elapsed);
                 Text("SignalTime", elapsed.ToString("0.0") + " / " + recordDuration.ToString("0.0") + " с"); Text("RecordingTimer", "● Запись. Нажми R или «Стоп», чтобы закончить раньше."); C<TextBlock>("TurnPrompt").Visibility = Visibility.Collapsed;
                 if (elapsed >= recordDuration) FinishRecording();
             }

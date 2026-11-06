@@ -35,7 +35,7 @@ namespace BrokenPhone
         public static async Task Download(string url, string destination, CancellationToken cancellation, Action<long, long> progress)
         {
             cancellation.ThrowIfCancellationRequested();
-            var request = (HttpWebRequest)WebRequest.Create(url); request.Timeout = 25000; request.UserAgent = "BrokenPhone/0.10";
+            var request = (HttpWebRequest)WebRequest.Create(url); request.Timeout = 25000; request.UserAgent = "BrokenPhone/0.11";
             string partial = destination + ".part-" + Guid.NewGuid().ToString("N");
             try
             {

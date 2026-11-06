@@ -242,14 +242,14 @@ namespace BrokenPhone
                         case "result_ready":
                             if (state.phase != "result" || message.round != state.round) throw new InvalidOperationException("Этот просмотр уже завершён.");
                             if (!state.resultReady.Contains(peer.Id)) state.resultReady = state.resultReady.Concat(new[] { peer.Id }).ToArray();
-                            if (state.playbackVersion == 0 && state.players.All(p => state.resultReady.Contains(p.id)) && state.players.Any(p => p.host && state.resultReady.Contains(p.id)))
-                            { state.playing = true; state.playbackPosition = 0; state.playbackAt = Playback.Now + 1200; state.playbackVersion = 1; }
                             break;
                         case "playback":
-                            Host(player); if (state.phase != "result" || message.round != state.round || state.playbackVersion == 0) throw new InvalidOperationException("Все участники ещё не готовы к просмотру.");
+                            Host(player); if (state.phase != "result" || message.round != state.round || !state.resultReady.Contains(player.id)) throw new InvalidOperationException("Дождись загрузки видео у ведущего.");
+                            if (state.playbackVersion == 0 && message.text != "start") throw new InvalidOperationException("Ведущий должен запустить просмотр.");
                             long at = Playback.Now + 350; double position = Playback.Position(state, at);
                             switch (message.text)
                             {
+                                case "start": if (state.playbackVersion != 0) return; position = 0; state.playing = true; break;
                                 case "pause": state.playing = false; break;
                                 case "resume": state.playing = true; break;
                                 case "restart": position = 0; state.playing = true; at += 400; break;
@@ -277,9 +277,16 @@ namespace BrokenPhone
         }
         string ResolveAsset(Peer peer, Message message)
         {
+            int sourceIndex;
+            if ((message.asset ?? "").StartsWith("packfile:") && Int32.TryParse(message.asset.Substring(9), out sourceIndex))
+            {
+                if (message.code != pack.contentKey || sourceIndex < 0 || sourceIndex >= pack.sourceFiles.Count || String.IsNullOrEmpty(pack.sourceRoot)) throw new InvalidDataException("Этот файл пака недоступен.");
+                return PackSources.SafeFile(pack.sourceRoot, pack.sourceFiles[sourceIndex].path);
+            }
             if (message.asset == "video") return pack.video;
             if (message.asset == "background" && !String.IsNullOrEmpty(pack.background)) return pack.background;
             if (message.asset == "result" && state.phase == "result" && File.Exists(resultFile)) return resultFile;
+            if (state.phase == "result" && (message.asset == "result_voices" || message.asset == "result_movie")) return Path.Combine(sessionFolder, message.asset == "result_voices" ? "result-voices.m4a" : "result-movie.m4a");
             int index;
             if (message.asset != null && message.asset.StartsWith("take:") && Int32.TryParse(message.asset.Substring(5), out index) && takes.ContainsKey(index))
             {
@@ -316,7 +323,7 @@ namespace BrokenPhone
             {
                 if (disposed || state.round != round) return;
                 if (error != null) { state.phase = "lobby"; RoleCasting.NewPack(state); Chat("Студия", "Не удалось собрать видео: " + error + ". Записи сохранены."); }
-                else { resultFile = output; state.phase = "result"; state.resultDuration = duration; state.resultReady = new string[0]; Chat("Студия", "Дубль смонтирован. Готовим общий просмотр…"); }
+                else { resultFile = output; state.phase = "result"; state.resultDuration = duration; state.resultMovieKind = Audio.MovieKind(renderPack); state.resultReady = new string[0]; Chat("Студия", "Дубль смонтирован. Просмотр запускает ведущий; сохранить MP4 может каждый."); }
                 Broadcast();
             }
         }
@@ -411,13 +418,13 @@ namespace BrokenPhone
                 if (pending.Stream != null) pending.Stream.Dispose(); Download ignored; downloads.TryRemove(message.id, out ignored); pending.Completion.TrySetException(error);
             }
         }
-        public async Task<string> Asset(string asset, string extension, Action<long, long> progress = null, CancellationToken cancellation = default(CancellationToken))
+        public async Task<string> Asset(string asset, string extension, Action<long, long> progress = null, CancellationToken cancellation = default(CancellationToken), string packKey = null)
         {
             string id = Guid.NewGuid().ToString("N"); var pending = new Download { Path = Path.Combine(Paths.Cache, id + extension), Progress = progress };
             downloads[id] = pending;
             try
             {
-                Send(new Message { kind = "asset", id = id, asset = asset });
+                Send(new Message { kind = "asset", id = id, asset = asset, code = packKey });
                 var timeout = Task.Delay(600000, cancellation);
                 if (await Task.WhenAny(pending.Completion.Task, timeout) != pending.Completion.Task) { cancellation.ThrowIfCancellationRequested(); throw new TimeoutException("Передача файла заняла больше десяти минут."); }
                 return await pending.Completion.Task;
