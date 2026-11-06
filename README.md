@@ -4,6 +4,8 @@
 
 ## Запуск
 
+Скачать готовую игру для Windows: [архив с EXE и всеми необходимыми файлами](https://github.com/theycallmeZer0/broken_phone/releases/download/v0.10.0/BrokenPhone-Windows-x64.zip). Отдельный EXE и контрольные суммы доступны на [странице релиза 0.10](https://github.com/theycallmeZer0/broken_phone/releases/tag/v0.10.0).
+
 Актуальная версия 0.10 находится в `dist/BrokenPhone/BrokenPhone.exe`. `Run.cmd` запускает её; если сборки нет, сначала создаёт её. Путь остаётся постоянным при обновлениях. Для разработки сборка отдельно создаётся в `build/compile`.
 
 Готовая переносимая сборка: `dist/BrokenPhone/BrokenPhone.exe`. Для передачи на другой компьютер используйте `dist/BrokenPhone-Windows-x64.zip`: распакуйте архив целиком и откройте `BrokenPhone.exe`. В архив включены пробный пак, FFmpeg и FFprobe; отдельно устанавливать их не требуется. Папки `Assets`, `tools`, а также `steam_api64.dll` и `steam_appid.txt` должны оставаться рядом с EXE. Собрать архив заново можно командой `.\package.ps1 -Verify`.
