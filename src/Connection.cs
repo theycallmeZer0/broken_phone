@@ -66,7 +66,7 @@ namespace BrokenPhone
             int next = -1;
             for (int i = state.turn + 1; i < state.order.Length; i++) if (state.order[i] == playerId) { next = i; break; }
             return new TurnNotice {
-                Title = next < 0 ? "Твои реплики уже записаны" : "Скоро твоя очередь",
+                Title = next < 0 ? (state.order.Contains(playerId) ? "Твои реплики уже записаны" : "Ты смотришь этот раунд") : "Скоро твоя очередь",
                 Detail = state.performing ? name + " сейчас записывает реплику." : name + " готовит свою реплику.",
                 Position = next < 0 ? "Дождись остальных — затем посмотрим общий дубль." : next == state.turn + 1 ? "Ты следующий. Приготовь микрофон." : "До твоего хода: " + (next - state.turn) + " реплики."
             };

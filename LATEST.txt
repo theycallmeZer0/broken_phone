@@ -1,4 +1,4 @@
-Актуальная версия: Broken Phone 0.8
+Актуальная версия: Broken Phone 0.9
 Игра: dist\BrokenPhone\BrokenPhone.exe
 Архив: dist\BrokenPhone-Windows-x64.zip
 Запуск из корня проекта: Run.cmd

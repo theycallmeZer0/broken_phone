@@ -79,7 +79,8 @@ namespace BrokenPhone
             {
                 for (int i = 0; i < Math.Min(state.order.Length, 11); i++)
                 {
-                    var player = state.players.FirstOrDefault(p => p.id == state.order[i]); turns.Children.Add(new TextBlock { Text = (i < state.turn ? "✓  " : i == state.turn ? "●  " : "○  ") + (i + 1) + ". " + (player == null ? "Игрок" : player.name), FontSize = 13, Margin = new Thickness(0, 7, 0, 7), FontWeight = i == state.turn ? FontWeights.Bold : FontWeights.Normal, Foreground = Brush(i < state.turn ? "#99D8B0" : "#AAB4CC") });
+                    var player = state.players.FirstOrDefault(p => p.id == state.order[i]); string label = (i + 1) + ". " + (player == null ? "Игрок" : player.name) + " · " + state.pack.lines[i].role;
+                    turns.Children.Add(new TextBlock { Text = (i < state.turn ? "✓  " : i == state.turn ? "●  " : "○  ") + label, ToolTip = label, TextTrimming = TextTrimming.CharacterEllipsis, FontSize = 12, Margin = new Thickness(0, 7, 0, 7), FontWeight = i == state.turn ? FontWeights.Bold : FontWeights.Normal, Foreground = Brush(i < state.turn ? "#99D8B0" : "#AAB4CC") });
                 }
                 if (state.order.Length > 11) turns.Children.Add(new TextBlock { Text = "… ещё " + (state.order.Length - 11) + " реплик", Foreground = Brush("#858478"), FontSize = 11 });
             }

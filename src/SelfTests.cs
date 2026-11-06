@@ -175,11 +175,11 @@ namespace BrokenPhone
                     File.WriteAllText(Path.Combine(fixture, "_pack_info.ini"), "[data]\ntitle=\"Проверка ролей\"\nlanguage=\"RUS\"\n");
                     File.WriteAllText(Path.Combine(fixture, "01.ini"), "[data]\ncaption=\"Первая\"\ndub_timestamps=[0]\ndub_ends=[3]\ndub_characters=[\"Актёр\"]\n");
                     File.WriteAllText(Path.Combine(fixture, "02.ini"), "[data]\ncaption=\"Вторая\"\ndub_timestamps=[2]\ndub_ends=[5]\ndub_characters=[\"Режиссёр\"]\n");
-                    Pack cues = PackLibrary.Load(fixture, ""); Check(cues.lines.Count == 1 && cues.DisplayLines == 2 && cues.DisplayRoles == 2, "Объединение реплик потеряло исходное число реплик и ролей");
+                    Pack cues = PackLibrary.Load(fixture, ""); Check(cues.lines.Count == 2 && cues.DisplayLines == 2 && cues.DisplayRoles == 2 && cues.lines[0].role == "Актёр" && cues.lines[1].role == "Режиссёр", "Исходные реплики и роли должны оставаться отдельными.");
                     Pack shared = cues.PublicCopy(); Check(shared.DisplayLines == 2 && shared.DisplayRoles == 2 && shared.thumbnail == cues.thumbnail && shared.root == "", "Превью и счётчики не передаются гостям");
                     Check(Path.GetFullPath(Paths.Packs) == Path.Combine(Paths.Base, "Packs"), "Паки сохраняются не в собственной папке игры");
                     Check(new WorkshopService().InstalledPacks().All(p => p.root.StartsWith(Paths.Packs, StringComparison.OrdinalIgnoreCase) || p.root.StartsWith(Path.Combine(Paths.Base, "Assets"), StringComparison.OrdinalIgnoreCase)), "Используется папка другой игры");
-                    results.Add("PASS: own Packs folder; original line/role counts and cover survive merging and lobby transfer");
+                    results.Add("PASS: own Packs folder; overlapping cues retain separate roles, exact counts and cover through lobby transfer");
                 }
                 finally { Directory.Delete(fixture, true); }
                 using (var server = new RoomServer(demo, 0))

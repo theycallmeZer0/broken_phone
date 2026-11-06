@@ -51,6 +51,9 @@ namespace BrokenPhone
                 catch (Exception e) { File.AppendAllText(log, "FAIL: " + e.GetBaseException().Message); return 1; }
             }
             if (args.Contains("--self-test")) return SelfTests.Run();
+            if (args.Contains("--role-lines-test")) return SelfTests.RoleLinesRegression();
+            if (args.Contains("--role-mix-test")) return SelfTests.RoleMixRegression();
+            if (args.Contains("--roles-network-test")) return SelfTests.RolesNetworkRegression();
             if (args.Contains("--pack-test")) return SelfTests.NativePack(args[Array.IndexOf(args, "--pack-test") + 1]);
             if (args.Contains("--workshop-test"))
             {
@@ -68,7 +71,7 @@ namespace BrokenPhone
             app.DispatcherUnhandledException += delegate(object sender, DispatcherUnhandledExceptionEventArgs e)
             {
                 File.AppendAllText(System.IO.Path.Combine(Paths.Data, "error.log"), DateTime.Now + " " + e.Exception + Environment.NewLine);
-                if (args.Contains("--screening-test") || args.Contains("--steam-ui-test") || args.Contains("--end-test") || args.Contains("--ui-smoke") || args.Contains("--microphone-ui-test") || args.Contains("--folder-packs-ui-test")) { File.WriteAllText(System.IO.Path.Combine(Paths.Base, "ui-error.txt"), e.Exception.ToString()); e.Handled = true; app.Shutdown(1); return; }
+                if (args.Contains("--screening-test") || args.Contains("--steam-ui-test") || args.Contains("--end-test") || args.Contains("--ui-smoke") || args.Contains("--microphone-ui-test") || args.Contains("--folder-packs-ui-test") || args.Contains("--roles-ui-test")) { File.WriteAllText(System.IO.Path.Combine(Paths.Base, "ui-error.txt"), e.Exception.ToString()); e.Handled = true; app.Shutdown(1); return; }
                 MessageBox.Show(e.Exception.Message, "Broken Phone"); e.Handled = true;
             };
             Window window;
@@ -78,6 +81,7 @@ namespace BrokenPhone
             {
                 await controller.Start();
                 if (args.Contains("--folder-packs-ui-test")) await controller.FolderPacksSmoke();
+                if (args.Contains("--roles-ui-test")) await controller.RolesSmoke();
                 if (args.Contains("+connect_lobby")) { ulong lobby; int index = Array.IndexOf(args, "+connect_lobby"); if (index + 1 < args.Length && UInt64.TryParse(args[index + 1], out lobby)) await controller.JoinSteam(lobby); }
                 if (args.Contains("--pack-downloads-ui-test")) await controller.PackDownloadsSmoke();
                 if (args.Contains("--input-ui-test")) await controller.InputSmoke();
@@ -89,9 +93,10 @@ namespace BrokenPhone
                 if (args.Contains("--workshop-screen")) await controller.WorkshopScreen();
                 if (args.Contains("--settings-screen")) { controller.SettingsScreen(); window.Close(); }
                 if (args.Contains("--lobby-pack")) await controller.PackScreen(args[Array.IndexOf(args, "--lobby-pack") + 1]);
+                if (args.Contains("--role-pack")) await controller.PackScreen(args[Array.IndexOf(args, "--role-pack") + 1], true);
             };
             window.Closed += delegate { controller.Dispose(); };
-            if (args.Contains("--screenshot") || args.Contains("--microphone-ui-test") || args.Contains("--input-ui-test") || args.Contains("--folder-packs-ui-test") || args.Contains("--pack-downloads-ui-test") || args.Contains("--ui-smoke") || args.Contains("--screening-test") || args.Contains("--steam-ui-test") || args.Contains("--end-test") || args.Contains("--workshop-screen") || args.Contains("--settings-screen") || args.Contains("--lobby-pack"))
+            if (args.Contains("--screenshot") || args.Contains("--roles-ui-test") || args.Contains("--role-pack") || args.Contains("--microphone-ui-test") || args.Contains("--input-ui-test") || args.Contains("--folder-packs-ui-test") || args.Contains("--pack-downloads-ui-test") || args.Contains("--ui-smoke") || args.Contains("--screening-test") || args.Contains("--steam-ui-test") || args.Contains("--end-test") || args.Contains("--workshop-screen") || args.Contains("--settings-screen") || args.Contains("--lobby-pack"))
             {
                 window.ShowInTaskbar = false; window.WindowStartupLocation = WindowStartupLocation.Manual; window.Left = -10000;
             }
@@ -198,7 +203,7 @@ namespace BrokenPhone
             B("SendChatButton").Click += delegate { SendChat(); };
             TBox("ChatInput").KeyDown += delegate(object sender, KeyEventArgs e) { if (e.Key == Key.Enter) SendChat(); };
             B("SaveSettingsButton").Click += async delegate { await Guard(SaveSettings); };
-            InitializeMicrophonePanel(); InitializeWorkshopDownloads();
+            InitializeMicrophonePanel(); InitializeWorkshopDownloads(); InitializeRoles();
             B("SearchButton").Click += async delegate { workshopPage = 1; await Guard(Search); };
             TBox("SearchInput").KeyDown += async delegate(object sender, KeyEventArgs e) { if (e.Key == Key.Enter) { workshopPage = 1; await Guard(Search); } };
             B("NextPage").Click += async delegate { workshopPage++; await Guard(Search); };
@@ -316,14 +321,14 @@ namespace BrokenPhone
             finally { window.Close(); }
         }
         public void SettingsScreen() { OpenSettings(); SaveScreen("settings-preview.png"); }
-        public async Task PackScreen(string path)
+        public async Task PackScreen(string path, bool roles = false)
         {
             try
             {
                 var deadline = DateTime.UtcNow.AddSeconds(10); while (Me == null && DateTime.UtcNow < deadline) await Task.Delay(50);
                 var selected = await Task.Run(() => PackLibrary.Load(path, System.IO.Path.GetFileName(path))); SelectPack(selected);
                 while ((state == null || state.pack.id != selected.id) && DateTime.UtcNow < deadline) await Task.Delay(50);
-                await Task.Delay(500); SaveScreen("selected-pack-preview.png");
+                await Task.Delay(500); if (roles) { OpenRoles(); window.UpdateLayout(); SaveScreen("roles-pack-preview.png"); } else SaveScreen("selected-pack-preview.png");
                 if (C<Image>("PackPreview").Source == null || !C<TextBlock>("PackMeta").Text.Contains("Ролей: " + selected.DisplayRoles)) throw new Exception("Превью или роли выбранного пака не отображаются.");
                 File.WriteAllText(System.IO.Path.Combine(Paths.Base, "selected-pack-test.txt"), "PASS: selected pack cover visible; source lines=" + selected.DisplayLines + "; roles=" + selected.DisplayRoles);
             }
@@ -401,7 +406,7 @@ namespace BrokenPhone
         void RenderLobby()
         {
             Text("PlayerCount", state.players.Count + " / 8"); Text("RoomCode", settings.Streamer ? "••••••" : state.code);
-            Text("PackTitle", state.pack.title); Text("PackMeta", "Реплик: " + state.pack.DisplayLines + "   ·   Ролей: " + state.pack.DisplayRoles + "   ·   " + Math.Ceiling(state.pack.lines.Last().end) + " сек."); Text("PackDescription", state.pack.description);
+            Text("PackTitle", state.pack.title); Text("PackMeta", "Реплик: " + state.pack.DisplayLines + "   ·   Ролей: " + state.pack.DisplayRoles + "   ·   " + Math.Ceiling(state.pack.lines.Max(line => line.end)) + " сек."); Text("PackDescription", state.pack.description);
             Text("PosterBadge", !String.IsNullOrEmpty(state.pack.workshopId) ? "WORKSHOP" : state.pack.id == "Demo" ? "ПРОБНЫЙ ПАК" : "ВАШ ПАК");
             string previewKey = state.pack.id + ":" + state.pack.preview + ":" + (state.pack.thumbnail ?? "").GetHashCode();
             if (posterKey != previewKey)
@@ -436,9 +441,8 @@ namespace BrokenPhone
             B("ChoosePackButton").IsEnabled = IsHost; B("StartButton").IsEnabled = IsHost && state.phase == "lobby" && downloadCancellation == null && state.players.Count >= 2 && state.players.All(p => p.ready);
             B("ReadyButton").Content = Me != null && Me.ready ? "✓  Готов" : "Я готов"; B("ReadyButton").IsEnabled = state.phase == "lobby";
             Text("StartHint", state.players.Count < 2 ? "Пригласи друга по сети или через Radmin VPN" : state.players.All(p => p.ready) ? "Вся команда в сборе. Можно начинать!" : "Готовность: " + state.players.Count(p => p.ready) + " из " + state.players.Count);
-            Text("ReadyHint", state.pack.generatedTiming ? "Таймкоды созданы автоматически: куски примерно по 4 секунды." : state.pack.mergedTiming ? "Пересекающиеся реплики объединены для игры по очереди." : "Реплики передаются по очереди, как в сломанном телефоне.");
             Text("ConnectionLabel", IsHost ? "Твоя комната · " + state.players.Count + "/8" : "В комнате · " + state.players.Count + "/8");
-            RenderChat(); RenderConnection();
+            RenderChat(); RenderConnection(); RenderRoles();
         }
         void RenderChat()
         {
@@ -485,15 +489,16 @@ namespace BrokenPhone
         void SendChat() { string value = TBox("ChatInput").Text.Trim(); if (value.Length > 0) { Send(new Message { kind = "chat", text = value }); TBox("ChatInput").Clear(); } }
         void Page(string name)
         {
-            if (name == "Lobby" && state != null && state.phase != "lobby") name = "Round";
+            if ((name == "Lobby" || name == "Roles") && state != null && state.phase != "lobby") name = "Round";
             if (microphone.Recording && name != "Round") { Toast("Сначала заверши запись реплики."); return; }
             if (name != "Settings") StopMicrophonePanel();
             currentPage = name;
             C<Grid>("LobbyPanel").Visibility = name == "Lobby" ? Visibility.Visible : Visibility.Collapsed;
+            C<Grid>("RolesPanel").Visibility = name == "Roles" ? Visibility.Visible : Visibility.Collapsed;
             C<Grid>("WorkshopPanel").Visibility = name == "Workshop" ? Visibility.Visible : Visibility.Collapsed;
             C<Grid>("RoundPanel").Visibility = name == "Round" ? Visibility.Visible : Visibility.Collapsed;
             C<Border>("SettingsPanel").Visibility = name == "Settings" ? Visibility.Visible : Visibility.Collapsed;
-            foreach (string page in new[] { "Lobby", "Workshop", "Settings" }) { B(page + "Tab").Background = Brush(page == name ? "#34304D" : "#00FFFFFF"); B(page + "Tab").Foreground = Brush(page == name ? "#D4C6FF" : "#AAB4CC"); }
+            foreach (string page in new[] { "Lobby", "Workshop", "Settings" }) { bool selected = page == name || page == "Lobby" && name == "Roles"; B(page + "Tab").Background = Brush(selected ? "#34304D" : "#00FFFFFF"); B(page + "Tab").Foreground = Brush(selected ? "#D4C6FF" : "#AAB4CC"); }
             if (name != "Round") { voice.Stop(); C<MediaElement>("Video").Pause(); playbackFinished = null; }
         }
         void OpenSettings()

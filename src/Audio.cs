@@ -136,12 +136,12 @@ namespace BrokenPhone
         public static void Original(Pack pack, int index, string output)
         {
             var line = pack.lines[index]; double length = line.end - line.start;
-            if (!String.IsNullOrEmpty(pack.original) && File.Exists(pack.original))
+            var cues = pack.sourceCues.Where(c => c.end > line.start && c.start < line.end && File.Exists(c.file) && (String.IsNullOrEmpty(line.sourceKey) || c.key == line.sourceKey)).ToArray();
+            if (cues.Length == 0 && !String.IsNullOrEmpty(pack.original) && File.Exists(pack.original))
             {
                 Tools.Run("ffmpeg", "-y -v error -ss " + N(line.start) + " -i " + Tools.Quote(pack.original) + " -t " + N(length) + " -vn -ac 1 -ar 44100 -c:a pcm_s16le " + Tools.Quote(output), 30000);
                 File.WriteAllBytes(output, Wave(ReadPcm(File.ReadAllBytes(output)))); return;
             }
-            var cues = pack.sourceCues.Where(c => c.end > line.start && c.start < line.end && File.Exists(c.file)).ToArray();
             if (cues.Length == 0) throw new InvalidOperationException("В этом паке нет оригинальной записи этой реплики.");
             var mix = new int[(int)Math.Ceiling(length * 44100)];
             foreach (var cue in cues)
@@ -181,22 +181,31 @@ namespace BrokenPhone
         {
             double duration = PackLibrary.Duration(pack.video);
             string track = Path.Combine(Path.GetDirectoryName(output), "voices.wav");
-            // Write one streaming PCM timeline. Hundreds of separate FFmpeg inputs exceed
-            // the Windows command-line limit and use unnecessary decoder processes.
-            int frames = (int)Math.Ceiling(duration * 44100), totalBytes = checked(frames * 2);
+            // A float timeline adds overlapping takes without clipping either voice.
+            // Bounded blocks keep long videos out of memory; FFmpeg limits the final mix once.
+            int frames = (int)Math.Ceiling(duration * 44100), totalBytes = checked(frames * 4);
             using (var stream = File.Create(track))
             using (var writer = new BinaryWriter(stream))
             {
                 byte[] header = Wave(new byte[0]); Array.Copy(BitConverter.GetBytes(totalBytes + 36), 0, header, 4, 4); Array.Copy(BitConverter.GetBytes(totalBytes), 0, header, 40, 4); writer.Write(header);
+                stream.Position = 20; writer.Write((short)3); stream.Position = 28; writer.Write(44100 * 4); writer.Write((short)4); writer.Write((short)32);
                 // SetLength creates a zero-filled timeline, including gaps between cues.
                 stream.SetLength(44L + totalBytes);
+                var encoded = new byte[16384 * 4]; var mixed = new float[16384];
                 for (int i = 0; i < takes.Length; i++)
                 {
-                    var line = pack.lines[i]; long start = (long)Math.Round(line.start * 44100) * 2;
-                    int maxBytes = (int)Math.Round((line.end - line.start) * 44100) * 2;
+                    var line = pack.lines[i]; int start = (int)Math.Round(line.start * 44100);
                     byte[] wav = File.ReadAllBytes(takes[i]); Validate(wav, line.end - line.start);
-                    int length = (int)Math.Min(Math.Min(maxBytes, wav.Length - 44), totalBytes - start);
-                    if (length > 0) { stream.Position = 44 + start; stream.Write(wav, 44, length); }
+                    int length = Math.Min(Math.Min((int)Math.Round((line.end - line.start) * 44100), (wav.Length - 44) / 2), frames - start);
+                    for (int offset = 0; offset < length; offset += mixed.Length)
+                    {
+                        int count = Math.Min(mixed.Length, length - offset), bytes = count * 4;
+                        long position = 44L + (start + offset) * 4L; stream.Position = position;
+                        int read = 0; while (read < bytes) { int chunk = stream.Read(encoded, read, bytes - read); if (chunk == 0) throw new EndOfStreamException(); read += chunk; }
+                        Buffer.BlockCopy(encoded, 0, mixed, 0, bytes);
+                        for (int sample = 0; sample < count; sample++) mixed[sample] += BitConverter.ToInt16(wav, 44 + (offset + sample) * 2) / 32768f;
+                        Buffer.BlockCopy(mixed, 0, encoded, 0, bytes); stream.Position = position; stream.Write(encoded, 0, bytes);
+                    }
                 }
             }
             string args = "-y -v error -i " + Tools.Quote(pack.video) + " -i " + Tools.Quote(track);

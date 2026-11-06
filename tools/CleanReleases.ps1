@@ -26,6 +26,7 @@ function Copy-Tree([string]$Source, [string]$Target) {
 }
 $bases = @($build) + @(Get-ChildItem -LiteralPath $build -Directory -Force | Where-Object { $_.Name -notin @('qa','compile') } | ForEach-Object FullName) + @(Get-ChildItem -LiteralPath $dist -Directory -Force | Where-Object { $_.FullName -ne $candidate -and $_.FullName -ne $current } | ForEach-Object FullName)
 if ($Publish -and (Test-Path -LiteralPath $current)) { $bases += $current }
+if ($Publish -and (Test-Path -LiteralPath (Join-Path $build 'compile'))) { $bases += Join-Path $build 'compile' }
 New-Item -ItemType Directory -Path $data,$migration -Force | Out-Null
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 $backupPath = Assert-ChildPath (Join-Path $data 'previous-recordings-settings.zip')
@@ -59,12 +60,18 @@ foreach ($folder in $packRoots | Sort-Object -Unique) {
     }
 }
 $settings = @($bases | ForEach-Object { $path = Join-Path $_ '.runtime\settings.json'; if (Test-Path -LiteralPath $path) { Get-Item -LiteralPath $path } } | Sort-Object LastWriteTime -Descending | Select-Object -First 1)
+if ($Publish) {
+    $userSettings = @(@($current, (Join-Path $build 'compile')) | ForEach-Object { $path = Join-Path $_ '.runtime\settings.json'; if (Test-Path -LiteralPath $path) { Get-Item -LiteralPath $path } } | Sort-Object LastWriteTime -Descending | Select-Object -First 1)
+    if ($userSettings.Count) { $settings = $userSettings }
+}
 if ($settings.Count) { Copy-Item -LiteralPath $settings[0].FullName -Destination (Join-Path $migration 'settings.json') -Force }
 $steam = @($bases | ForEach-Object { $path = Join-Path $_ '.runtime\SteamCMD'; if (Test-Path -LiteralPath (Join-Path $path 'steamcmd.exe')) { Get-Item -LiteralPath $path } } | Sort-Object LastWriteTime -Descending | Select-Object -First 1)
 if ($steam.Count -and !(Test-Path -LiteralPath (Join-Path $migration 'SteamCMD\steamcmd.exe'))) { Copy-Tree $steam[0].FullName (Join-Path $migration 'SteamCMD') }
 if ($Publish) {
     if (!(Test-Path -LiteralPath (Join-Path $candidate 'BrokenPhone.exe'))) { throw 'Нет проверенной сборки BrokenPhone-next.' }
-    foreach ($report in @('self-test.txt','input-ui-test.txt','folder-packs-ui-test.txt','pack-downloads-ui-test.txt','screening-test.txt','steam-screening-test.txt')) {
+    $openCopies = @(Get-CimInstance Win32_Process -Filter "Name='BrokenPhone.exe'" | ForEach-Object ExecutablePath)
+    if ($openCopies | Where-Object { $_ -and ($_.StartsWith($current + '\', [StringComparison]::OrdinalIgnoreCase) -or $_.StartsWith($candidate + '\', [StringComparison]::OrdinalIgnoreCase)) }) { throw 'Закрой запущенную основную копию игры, чтобы установить готовое обновление.' }
+    foreach ($report in @('self-test.txt','role-lines-test.txt','role-mix-test.txt','roles-network-test.txt','roles-ui-test.txt','input-ui-test.txt','folder-packs-ui-test.txt','pack-downloads-ui-test.txt','screening-test.txt','steam-screening-test.txt')) {
         $text = Get-Content -LiteralPath (Join-Path $candidate $report) -Raw
         if (!$text.StartsWith('PASS:') -or $text.Contains('FAIL:')) { throw ('Не пройдена проверка: ' + $report) }
     }

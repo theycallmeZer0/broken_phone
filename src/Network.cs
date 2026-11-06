@@ -54,6 +54,7 @@ namespace BrokenPhone
         public RoomServer(Pack initialPack, int port)
         {
             pack = initialPack; state.pack = pack.PublicCopy(); state.code = Guid.NewGuid().ToString("N").Substring(0, 6).ToUpperInvariant();
+            RoleCasting.NewPack(state);
             listener = new TcpListener(IPAddress.Any, port); listener.Start(16);
             Task.Run((Action)AcceptLoop);
         }
@@ -86,6 +87,7 @@ namespace BrokenPhone
                     if (isHost && state.players.Any(p => p.host)) throw new InvalidOperationException("Ведущий уже подключён.");
                     peers.Add(peer); joined = true;
                     state.players.Add(new Player { id = peer.Id, owner = peer.Id, name = Clean(hello.text, 64, "Игрок"), host = isHost, ready = false, color = state.players.Count % 8 });
+                    RoleCasting.Refresh(state);
                     peer.Send(new Message { kind = "welcome", id = peer.Id });
                     Chat("Студия", state.players.Last().name + " в гримёрке"); Broadcast();
                 }
@@ -105,6 +107,7 @@ namespace BrokenPhone
                     {
                         bool hostLeft = state.players.Any(p => p.id == peer.Id && p.host);
                         peers.Remove(peer); state.players.RemoveAll(p => p.owner == peer.Id);
+                        RoleCasting.Refresh(state);
                         if (state.phase != "lobby") { state.phase = "lobby"; state.round = Guid.NewGuid().ToString("N"); Chat("Студия", "Игрок отключился. Раунд остановлен, записи сохранены."); }
                         if (hostLeft) { foreach (var other in peers.ToArray()) other.Socket.Close(); }
                         else Broadcast();
@@ -149,7 +152,23 @@ namespace BrokenPhone
                         case "ping": peer.Send(new Message { kind = "pong", clientTime = message.clientTime, serverTime = Playback.Now }); return;
                         case "chat": Chat(player.name, Clean(message.text, 240, "…")); break;
                         case "rename": Lobby(); player.name = Clean(message.text, 64, "Игрок"); break;
-                        case "ready": Lobby(); player.ready = message.flag; break;
+                        case "ready": Lobby(); if (message.flag && !RoleCasting.Complete(state)) throw new InvalidOperationException("Сначала распределите все роли."); player.ready = message.flag; break;
+                        case "role_mode":
+                            Host(player); Lobby();
+                            if (message.text != "auto" && message.text != "manual") throw new InvalidOperationException("Неизвестный режим распределения ролей.");
+                            if (state.roleMode == message.text) break;
+                            state.roleMode = message.text;
+                            if (state.roleMode == "manual") foreach (var role in state.roles) role.playerId = "";
+                            RoleCasting.Refresh(state);
+                            Chat("Студия", state.roleMode == "manual" ? "Выбираем роли вручную. Можно взять несколько персонажей." : "Роли распределены автоматически по количеству реплик."); break;
+                        case "role_select":
+                            Lobby(); if (state.roleMode != "manual") throw new InvalidOperationException("Ведущий должен включить ручной выбор ролей.");
+                            var selectedRole = state.roles.FirstOrDefault(role => role.role == message.id);
+                            if (selectedRole == null) throw new InvalidOperationException("Этой роли нет в выбранном паке.");
+                            if (!String.IsNullOrEmpty(selectedRole.playerId) && selectedRole.playerId != player.id) throw new InvalidOperationException("Эту роль уже выбрал другой игрок.");
+                            string assigned = message.flag ? player.id : "";
+                            if (selectedRole.playerId == assigned) break;
+                            selectedRole.playerId = assigned; RoleCasting.Refresh(state); break;
                         case "local":
                             throw new InvalidOperationException("Игра поддерживает только сетевых участников. Друг должен подключиться со своего компьютера.");
                         case "kick":
@@ -157,22 +176,25 @@ namespace BrokenPhone
                             if (victim == null) return;
                             var connection = peers.FirstOrDefault(p => p.Id == victim.owner);
                             state.players.RemoveAll(p => p.id == victim.id);
+                            RoleCasting.Refresh(state);
                             if (connection != null) { connection.Send(new Message { kind = "kicked", text = "Ведущий исключил вас из комнаты." }); connection.Socket.Close(); }
                             break;
                         case "pack":
                             Host(player); Lobby();
                             if (message.pack == null || !File.Exists(message.pack.video)) throw new InvalidDataException("Файл выбранного пака недоступен.");
                             pack = PackLibrary.Load(String.IsNullOrEmpty(message.pack.root) ? Path.GetDirectoryName(message.pack.video) : message.pack.root, message.pack.workshopId); pack.preview = message.pack.preview; state.pack = pack.PublicCopy();
-                            foreach (var member in state.players) member.ready = false;
+                            RoleCasting.NewPack(state);
                             Chat("Студия", "Выбран пак «" + pack.title + "»"); break;
                         case "start":
                             Host(player); Lobby(); if (state.players.Count < 2) throw new InvalidOperationException("Нужны хотя бы два игрока.");
+                            if (!RoleCasting.Complete(state)) throw new InvalidOperationException("Сначала распределите все роли.");
                             if (state.players.Any(p => !p.ready)) throw new InvalidOperationException("Дождитесь готовности всех игроков.");
                             state.turn = 0; state.heard = true; state.performing = false; state.round = Guid.NewGuid().ToString("N"); takes.Clear(); resultFile = null;
                             state.resultReady = new string[0]; state.playbackVersion = 0; state.playing = false; state.playbackPosition = 0; state.resultDuration = 0;
-                            state.order = pack.lines.Select((l, i) => state.players[i % state.players.Count].id).ToArray();
+                            state.order = RoleCasting.Order(state);
                             sessionFolder = Path.Combine(Paths.Sessions, state.round); Directory.CreateDirectory(sessionFolder);
                             File.WriteAllText(Path.Combine(sessionFolder, "pack.json"), Json.Write(pack));
+                            File.WriteAllText(Path.Combine(sessionFolder, "roles.json"), Json.Write(new { mode = state.roleMode, roles = state.roles, players = state.players.Select(member => new { member.id, member.name }).ToArray() }));
                             foreach (var member in state.players) { member.prepared = false; member.downloadProgress = 0; member.loadStatus = "Ожидаем загрузку"; }
                             state.phase = "loading"; break;
                         case "pack_progress":

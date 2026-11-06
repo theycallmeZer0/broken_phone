@@ -30,10 +30,12 @@ namespace BrokenPhone
         public double end { get; set; }
         public string text { get; set; }
         public string role { get; set; }
+        public string sourceKey { get; set; }
         public bool originalAvailable { get; set; }
     }
     public sealed class SourceCue
     {
+        public string key { get; set; }
         public string file { get; set; }
         public double start { get; set; }
         public double end { get; set; }
@@ -105,6 +107,8 @@ namespace BrokenPhone
         public List<Player> players { get; set; }
         public List<ChatLine> chat { get; set; }
         public Pack pack { get; set; }
+        public string roleMode { get; set; }
+        public List<RoleAssignment> roles { get; set; }
         public int turn { get; set; }
         public bool heard { get; set; }
         public bool performing { get; set; }
@@ -116,7 +120,7 @@ namespace BrokenPhone
         public long playbackAt { get; set; }
         public long serverTime { get; set; }
         public double resultDuration { get; set; }
-        public RoomState() { phase = "lobby"; players = new List<Player>(); chat = new List<ChatLine>(); order = new string[0]; resultReady = new string[0]; }
+        public RoomState() { phase = "lobby"; players = new List<Player>(); chat = new List<ChatLine>(); order = new string[0]; resultReady = new string[0]; roleMode = "auto"; roles = new List<RoleAssignment>(); }
         public Player Active { get { return turn < order.Length ? players.FirstOrDefault(p => p.id == order[turn]) : null; } }
     }
 

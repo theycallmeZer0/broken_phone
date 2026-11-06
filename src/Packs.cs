@@ -76,7 +76,7 @@ namespace BrokenPhone
                 foreach (var entry in (IEnumerable)sourceCues)
                 {
                     var cue = entry as IDictionary<string, object>; if (cue == null) continue; string source = Str(cue, "file");
-                    if (!String.IsNullOrEmpty(source)) { string path = SafePath(root, source); if (File.Exists(path)) pack.sourceCues.Add(new SourceCue { file = path, start = Number(cue, 0, "start"), end = Number(cue, 0, "end") }); }
+                    if (!String.IsNullOrEmpty(source)) { string path = SafePath(root, source); if (File.Exists(path)) pack.sourceCues.Add(new SourceCue { key = Str(cue, "key"), file = path, start = Number(cue, 0, "start"), end = Number(cue, 0, "end") }); }
                 }
             pack.preview = Str(data, "preview"); pack.thumbnail = Str(data, "thumbnail");
             pack.lineCount = (int)Number(data, 0, "line_count", "lineCount"); pack.roleCount = (int)Number(data, 0, "role_count", "roleCount");
@@ -98,7 +98,7 @@ namespace BrokenPhone
                     double end = Number(item, start + Number(item, 4, "duration"), "end", "end_time", "endTime", "end_ms", "to");
                     if (Double.IsNaN(start) || Double.IsInfinity(start) || Double.IsNaN(end) || Double.IsInfinity(end) || end <= start || end > duration + .2 || end - start > 60)
                         throw new InvalidDataException("Некорректные таймкоды (одна реплика — максимум 60 секунд).");
-                    pack.lines.Add(new Line { start = start, end = Math.Min(end, duration), text = Str(item, "text", "subtitle"), role = Str(item, "role", "character", "speaker") });
+                    pack.lines.Add(new Line { start = start, end = Math.Min(end, duration), text = Str(item, "text", "subtitle"), role = RoleCasting.RoleName(Str(item, "role", "character", "speaker")), sourceKey = Str(item, "sourceKey", "source_key") });
                 }
             }
             if (pack.lines.Count == 0)
@@ -111,13 +111,15 @@ namespace BrokenPhone
             pack.mergedTiming = data.ContainsKey("merged_timing") && Convert.ToBoolean(data["merged_timing"]);
             pack.lines = pack.lines.OrderBy(l => l.start).ToList();
             if (pack.lines.Count > 500) throw new InvalidDataException("В паке больше 500 реплик.");
-            for (int i = 1; i < pack.lines.Count; i++) if (pack.lines[i].start < pack.lines[i - 1].end - .02) throw new InvalidDataException("Для цепочки нужны реплики без пересечений.");
             string background = Str(data, "background", "background_audio", "instrumental", "music");
             pack.background = String.IsNullOrEmpty(background) ? "" : SafePath(root, background);
             if (!File.Exists(pack.background)) pack.background = "";
-            if ((pack.lineCount == 0 || pack.roleCount == 0 || pack.sourceCues.Count == 0) && File.Exists(Path.Combine(folder, "_pack_info.ini")))
+            string nativeMetadata = pack.mergedTiming ? Directory.GetFiles(folder, "_pack_info.ini", SearchOption.AllDirectories).FirstOrDefault() : Path.Combine(folder, "_pack_info.ini");
+            if (pack.mergedTiming && (nativeMetadata == null || !File.Exists(nativeMetadata))) throw new InvalidDataException("Этот пак подготовлен старой версией с объединением реплик. Выбери исходную папку пака и подготовь его заново.");
+            if ((pack.mergedTiming || pack.lineCount == 0 || pack.roleCount == 0 || pack.sourceCues.Count == 0) && nativeMetadata != null && File.Exists(nativeMetadata))
             {
-                var original = LoadDubTogether(folder, workshopId, cancellation); pack.lineCount = original.DisplayLines; pack.roleCount = original.DisplayRoles;
+                var original = LoadDubTogether(Path.GetDirectoryName(nativeMetadata), workshopId, cancellation); pack.lineCount = original.DisplayLines; pack.roleCount = original.DisplayRoles;
+                if (pack.mergedTiming) { pack.lines = original.lines; pack.mergedTiming = false; }
                 pack.sourceCues = original.sourceCues; pack.original = original.original;
                 if (String.IsNullOrEmpty(pack.thumbnail)) pack.thumbnail = original.thumbnail;
             }
@@ -132,7 +134,7 @@ namespace BrokenPhone
         }
         static void Availability(Pack pack)
         {
-            foreach (var line in pack.lines) line.originalAvailable = !String.IsNullOrEmpty(pack.original) || pack.sourceCues.Any(c => c.start < line.end && c.end > line.start);
+            foreach (var line in pack.lines) line.originalAvailable = !String.IsNullOrEmpty(pack.original) || pack.sourceCues.Any(c => c.start < line.end && c.end > line.start && (String.IsNullOrEmpty(line.sourceKey) || c.key == line.sourceKey));
         }
         public static string MakeThumbnail(string video, CancellationToken cancellation = default(CancellationToken))
         {
@@ -187,8 +189,9 @@ namespace BrokenPhone
                 {
                     double start = Convert.ToDouble(starts[i], CultureInfo.InvariantCulture), end = i < ends.Length ? Convert.ToDouble(ends[i], CultureInfo.InvariantCulture) : Math.Min(start + 4, total);
                     if (Double.IsNaN(start) || Double.IsInfinity(start) || Double.IsNaN(end) || Double.IsInfinity(end) || start < 0 || end <= start || end > total + .5) throw new InvalidDataException("В оригинальном паке некорректный таймкод: " + Path.GetFileName(file));
-                    lines.Add(new Line { start = start, end = Math.Min(end, total), text = IniText(data, "caption", "Придумай свою реплику"), role = i < characters.Length ? Convert.ToString(characters[i]) : "Голос" });
-                    string audio = Path.ChangeExtension(file, ".mp3"); if (File.Exists(audio)) pack.sourceCues.Add(new SourceCue { file = audio, start = start, end = Math.Min(end, total) });
+                    string sourceKey = Path.GetFileName(file) + "#" + i;
+                    lines.Add(new Line { start = start, end = Math.Min(end, total), text = IniText(data, "caption", "Придумай свою реплику"), role = RoleCasting.RoleName(i < characters.Length ? Convert.ToString(characters[i]) : "Голос"), sourceKey = sourceKey });
+                    string audio = Path.ChangeExtension(file, ".mp3"); if (File.Exists(audio)) pack.sourceCues.Add(new SourceCue { key = sourceKey, file = audio, start = start, end = Math.Min(end, total) });
                 }
             }
             if (lines.Count == 0) throw new InvalidDataException("В INI-файлах пака не найдены таймкоды реплик.");
@@ -196,23 +199,12 @@ namespace BrokenPhone
             string icon = SafePath(folder, IniText(metadata, "icon", "Icon.png"));
             if (File.Exists(icon) && new FileInfo(icon).Length <= 1024 * 1024) pack.thumbnail = Convert.ToBase64String(File.ReadAllBytes(icon));
             else pack.thumbnail = MakeThumbnail(video, cancellation);
-            foreach (var line in lines.OrderBy(l => l.start))
-            {
-                var previous = pack.lines.LastOrDefault();
-                if (previous != null && line.start < previous.end)
-                {
-                    previous.end = Math.Max(previous.end, line.end); previous.text += " / " + line.text;
-                    if (previous.text.Length > 1000) previous.text = previous.text.Substring(0, 1000);
-                    if (previous.role != line.role) previous.role = "Несколько персонажей";
-                    pack.mergedTiming = true;
-                }
-                else pack.lines.Add(line);
-            }
+            pack.lines = lines.OrderBy(line => line.start).ToList();
             var sequential = new List<Line>();
             foreach (var line in pack.lines)
             {
                 int count = Math.Max(1, (int)Math.Ceiling((line.end - line.start) / 60));
-                for (int i = 0; i < count; i++) sequential.Add(new Line { start = line.start + (line.end - line.start) * i / count, end = line.start + (line.end - line.start) * (i + 1) / count, text = line.text, role = line.role });
+                for (int i = 0; i < count; i++) sequential.Add(new Line { start = line.start + (line.end - line.start) * i / count, end = line.start + (line.end - line.start) * (i + 1) / count, text = line.text, role = line.role, sourceKey = line.sourceKey });
             }
             if (sequential.Count > 500) throw new InvalidDataException("В паке больше 500 последовательных фрагментов.");
             pack.lines = sequential; Availability(pack); PackContent.Describe(pack, cancellation); return pack;
@@ -262,7 +254,7 @@ namespace BrokenPhone
                     video = loaded.video.Substring(stage.TrimEnd(Path.DirectorySeparatorChar).Length + 1), background = String.IsNullOrEmpty(loaded.background) ? "" : loaded.background.Substring(stage.TrimEnd(Path.DirectorySeparatorChar).Length + 1), lines = loaded.lines,
                     generated_timing = loaded.generatedTiming, merged_timing = loaded.mergedTiming, line_count = loaded.DisplayLines, role_count = loaded.DisplayRoles, preview = loaded.preview, thumbnail = loaded.thumbnail,
                     original = String.IsNullOrEmpty(loaded.original) ? "" : loaded.original.Substring(stage.TrimEnd(Path.DirectorySeparatorChar).Length + 1),
-                    source_cues = loaded.sourceCues.Select(c => new { file = c.file.Substring(stage.TrimEnd(Path.DirectorySeparatorChar).Length + 1), start = c.start, end = c.end }).ToArray() };
+                    source_cues = loaded.sourceCues.Select(c => new { key = c.key, file = c.file.Substring(stage.TrimEnd(Path.DirectorySeparatorChar).Length + 1), start = c.start, end = c.end }).ToArray() };
                 File.WriteAllText(Path.Combine(stage, "pack.json"), Json.Write(canonical));
                 cancellation.ThrowIfCancellationRequested();
                 if (Directory.Exists(destination)) Directory.Delete(destination, true);
