@@ -1,5 +1,5 @@
-Актуальная версия: Broken Phone 0.19
-Игра: dist\BrokenPhone-0.19\BrokenPhone.exe
-Архив: dist\BrokenPhone-0.19-Windows-x64.zip
+Актуальная версия: Broken Phone 0.19.1
+Игра: dist\BrokenPhone-0.19.1\BrokenPhone.exe
+Архив: dist\BrokenPhone-0.19.1-Windows-x64.zip
 Запуск из корня проекта: Run.cmd
 Сохранённые данные прежних запусков: UserData\previous-recordings-settings.zip

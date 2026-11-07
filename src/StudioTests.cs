@@ -17,7 +17,7 @@ namespace BrokenPhone
             DateTime deadline = DateTime.UtcNow.AddSeconds(seconds);
             while (!condition()) { if (DateTime.UtcNow > deadline) throw new Exception(failure); await Task.Delay(40); }
         }
-        public async Task ScreeningSmoke(bool endOnly = false, bool steamTransport = false, bool checkSync = false)
+        public async Task ScreeningSmoke(bool endOnly = false, bool steamTransport = false, bool checkSync = false, bool disconnectGuest = false)
         {
             Window otherWindow = null; GameWindow other = null; var report = new List<string>();
             try
@@ -140,8 +140,24 @@ namespace BrokenPhone
                 ControlPlayback("seek", state.resultDuration - 1);
                 await Until(() => !state.playing && !other.state.playing && hostVideo.Position.TotalSeconds > state.resultDuration - .15 && guestVideo.Position.TotalSeconds > state.resultDuration - .15, "Конец общего просмотра не синхронизирован.", 6);
                 report.Add("PASS: both videos finish at the final frame and remain ready for replay or saving");
-                B("LobbyTab").RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); await Until(() => state.phase == "lobby" && other.state.phase == "lobby", "Нет возврата в лобби.");
-                report.Add("PASS: both windows return to lobby; recordings never open a physical microphone during this test");
+                if (disconnectGuest)
+                {
+                    ControlPlayback("restart", 0);
+                    await Until(() => state.playing && hostVideo.Position.TotalSeconds > .4 && hostVideo.Position.TotalSeconds < 2, "Повтор не начался перед выходом гостя.");
+                    string round = state.round; int version = state.playbackVersion; var mixer = finalMixer;
+                    other.Disconnect();
+                    await Until(() => state.players.Count == 1, "Выход гостя не обработан.");
+                    if (state.phase != "result" || state.round != round || !state.playing || state.playbackVersion != version || !finalMediaPrepared || !Object.ReferenceEquals(mixer, finalMixer)) throw new Exception("Выход гостя сбросил просмотр или заново открыл плеер.");
+                    double position = hostVideo.Position.TotalSeconds;
+                    await Until(() => hostVideo.Position.TotalSeconds > position + .3, "Видео остановилось после выхода гостя.", 3);
+                    if (currentPage != "Round" || !B("SubmitButton").IsEnabled) throw new Exception("После выхода гостя скрыт просмотр или недоступно сохранение.");
+                    string saved = Path.Combine(Paths.Cache, "disconnected-export-" + Guid.NewGuid().ToString("N") + ".mp4");
+                    try { await SaveFinalVideo(saved); if (PackContent.FileHash(saved) != PackContent.FileHash(Path.Combine(Paths.Sessions, round, "result.mp4"))) throw new Exception("После выхода гостя сохранён другой MP4."); }
+                    finally { if (File.Exists(saved)) File.Delete(saved); }
+                    report.Add("PASS: guest disconnect leaves the actual decoded video advancing in the same player, on the same result screen; remaining host saves the original MP4");
+                }
+                B("LobbyTab").RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); await Until(() => state.phase == "lobby" && (disconnectGuest || other.state.phase == "lobby"), "Нет возврата в лобби.");
+                report.Add(disconnectGuest ? "PASS: host returns to lobby manually after the guest disconnects" : "PASS: both windows return to lobby; recordings never open a physical microphone during this test");
             }
             catch (Exception e) { report.Add("FAIL: " + e); if (state != null && other != null && other.state != null) report.Add("Playback state at failure: " + Json.Write(new { hostPosition = C<MediaElement>("Video").Position.TotalSeconds, guestPosition = other.C<MediaElement>("Video").Position.TotalSeconds, hostPlaying = state.playing, guestPlaying = other.state.playing, duration = state.resultDuration, natural = C<MediaElement>("Video").NaturalDuration.ToString(), version = state.playbackVersion, appliedHost = playbackAppliedVersion, appliedGuest = other.playbackAppliedVersion, hostPrepared = finalMediaPrepared, guestPrepared = other.finalMediaPrepared, hostVoices = FinalAudioPosition, guestVoices = other.FinalAudioPosition, hostMovie = FinalAudioPosition, guestMovie = other.FinalAudioPosition, hostNotice = C<TextBlock>("ToastText").Text, guestNotice = other.C<TextBlock>("ToastText").Text })); }
             finally

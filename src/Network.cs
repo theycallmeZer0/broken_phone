@@ -107,10 +107,15 @@ namespace BrokenPhone
                 {
                     if (joined)
                     {
-                        bool hostLeft = state.players.Any(p => p.id == peer.Id && p.host);
+                        var leavingPlayer = state.players.FirstOrDefault(p => p.id == peer.Id);
+                        bool hostLeft = leavingPlayer != null && leavingPlayer.host;
+                        string leavingName = leavingPlayer == null ? "Игрок" : leavingPlayer.name;
                         peers.Remove(peer); state.players.RemoveAll(p => p.owner == peer.Id);
                         RoleCasting.Refresh(state);
-                        if (state.phase != "lobby") { state.phase = "lobby"; state.round = Guid.NewGuid().ToString("N"); RoleCasting.NewPack(state); Chat("Студия", "Игрок отключился. Раунд остановлен, записи сохранены."); }
+                        state.resultReady = state.resultReady.Where(id => state.players.Any(p => p.id == id)).ToArray();
+                        if (!hostLeft && (state.phase == "rendering" || state.phase == "result"))
+                            Chat("Студия", leavingName + " отключился. " + (state.phase == "rendering" ? "Монтаж продолжается, все записи сохранены." : "Просмотр продолжается, MP4 можно сохранить."));
+                        else if (state.phase != "lobby") { state.phase = "lobby"; state.round = Guid.NewGuid().ToString("N"); RoleCasting.NewPack(state); Chat("Студия", "Игрок отключился. Раунд остановлен, записи сохранены."); }
                         if (hostLeft) { foreach (var other in peers.ToArray()) other.Socket.Close(); }
                         else Broadcast();
                     }

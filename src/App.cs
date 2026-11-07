@@ -47,6 +47,7 @@ namespace BrokenPhone
                 File.WriteAllText(System.IO.Path.Combine(Paths.Cache, "cancel-child.pid"), child.Id.ToString()); if (!args.Contains("--transfer-worker-exits")) Thread.Sleep(30000); return 0;
             }
             if (args.Contains("--lobby-pack-test")) return SelfTests.LobbyPackRegression();
+            if (args.Contains("--playback-disconnect-test")) return SelfTests.PlaybackDisconnectRegression();
             if (args.Contains("--steam-test")) return SelfTests.SteamIntegration();
             if (args.Contains("--steam-workshop-test")) return SelfTests.SteamWorkshopIntegration(args[Array.IndexOf(args, "--steam-workshop-test") + 1]);
             if (args.Contains("--design-test")) return DesignTests.Run();
@@ -114,7 +115,7 @@ namespace BrokenPhone
                 if (args.Contains("--input-ui-test")) await controller.InputSmoke();
                 if (args.Contains("--microphone-ui-test")) await controller.MicrophonePanelSmoke();
                 if (args.Contains("--ui-smoke")) await controller.Smoke(args.Contains("--ui-pack") ? args[Array.IndexOf(args, "--ui-pack") + 1] : null);
-                if (args.Contains("--screening-test")) await controller.ScreeningSmoke();
+                if (args.Contains("--screening-test")) await controller.ScreeningSmoke(false, false, false, args.Contains("--disconnect-guest"));
                 if (args.Contains("--steam-ui-test")) await controller.ScreeningSmoke(false, true);
                 if (args.Contains("--steam-overlay-test")) await controller.OverlaySmoke();
                 if (args.Contains("--end-test")) await controller.ScreeningSmoke(true);
