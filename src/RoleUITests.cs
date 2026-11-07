@@ -33,6 +33,12 @@ namespace BrokenPhone
                 otherWindow.ShowInTaskbar = false; otherWindow.WindowStartupLocation = WindowStartupLocation.Manual; otherWindow.Left = -10000;
                 other = new GameWindow(otherWindow, false); other.settings.Name = "Тестовый друг"; other.settings.Volume = 0; otherWindow.Show();
                 await other.Connect("127.0.0.1", server.Port, server.Code, ""); await Until(() => state.players.Count == 2 && other.Me != null, "Гость не подключился.");
+                await Until(() => videoDownload != null && videoDownload.Status == TaskStatus.RanToCompletion && other.videoDownload != null && other.videoDownload.Status == TaskStatus.RanToCompletion && state.players.All(player => player.downloadProgress == 1), "Пак не загружается у всех сразу в лобби.");
+                var preloaded = other.videoDownload;
+                Send(new Message { kind = "chat", text = "Проверка предзагрузки" });
+                await Until(() => other.state.chat.Any(line => line.text == "Проверка предзагрузки"), "Нет обновления лобби.");
+                if (state.phase != "lobby" || !Object.ReferenceEquals(preloaded, other.videoDownload) || other.preparationCancel.IsCancellationRequested) throw new Exception("Обновление лобби отменило или повторно запустило загрузку.");
+                report.Add("PASS: host and joining guest preload while still in lobby; lobby updates preserve completed task and cancellation token");
                 if (window.FindName("ChooseRolesButton") != null || !B("StartButton").Content.ToString().Contains("Начать игру") || state.roles.Any(role => !String.IsNullOrEmpty(role.playerId))) throw new Exception("Распределение ролей доступно до начала игры.");
                 B("ReadyButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); other.B("ReadyButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); await Until(() => state.players.All(player => player.ready), "Нет готовности в лобби.");
                 SaveScreen("game-lobby-preview.png"); B("StartButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));

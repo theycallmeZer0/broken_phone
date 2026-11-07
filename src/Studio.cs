@@ -120,8 +120,13 @@ namespace BrokenPhone
             if (state.phase != "recording" && state.phase != "loading") return;
             if (sourceFile == null)
             {
-                if (videoDownload == null || videoDownloadClient != room) { videoDownloadClient = room; videoDownload = LoadRoundPack(room, state.pack, round); }
-                string file = await videoDownload; if (room != client || state.round != round || state.phase != "recording" && state.phase != "loading") return; sourceFile = file;
+                if (videoDownload != null && (videoDownload.IsFaulted || videoDownload.IsCanceled)) videoDownload = null;
+                EnsureSelectedPack();
+                string file;
+                try { file = await videoDownload; }
+                catch (OperationCanceledException) { return; }
+                catch (Exception error) { if (room == client && state.round == round && state.phase == "loading") Send(new Message { kind = "pack_failed", round = round, text = error.GetBaseException().Message }); throw; }
+                if (room != client || state.round != round || state.phase != "recording" && state.phase != "loading") return; sourceFile = file;
             }
             var player = C<MediaElement>("Video"); videoMode = "source"; videoRound = round;
             if (player.Source == null || player.Source.LocalPath != sourceFile) { sourcePrepared = false; player.Source = new Uri(sourceFile); player.Volume = 0; player.Pause(); }

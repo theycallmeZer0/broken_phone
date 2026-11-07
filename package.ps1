@@ -26,7 +26,7 @@ foreach ($name in @('ffmpeg', 'ffprobe')) {
 & (Join-Path $tools 'ffmpeg.exe') -version 2>&1 | Out-File -LiteralPath (Join-Path $release 'ThirdParty\FFmpeg-build.txt') -Encoding utf8
 & (Join-Path $tools 'ffmpeg.exe') -L 2>&1 | Out-File -LiteralPath (Join-Path $release 'ThirdParty\FFmpeg-license-notice.txt') -Encoding utf8
 if ($Verify) {
-    foreach ($check in @('pack-commit-test','self-test','state-packets-test','role-lines-test','role-mix-test','roles-network-test','roles-ui-test','design-test','display-ui-test','join-ui-test','audio-output-ui-test','ui-smoke','input-ui-test','folder-packs-ui-test','pack-downloads-ui-test','pack-sync-test','microphone-ui-test','presentation-ui-test','turn-navigation-ui-test','empty-lobby-ui-test','screening-test','playback-sync-test')) {
+    foreach ($check in @('pack-commit-test','lobby-pack-test','self-test','state-packets-test','role-lines-test','role-mix-test','roles-network-test','roles-ui-test','design-test','display-ui-test','join-ui-test','audio-output-ui-test','ui-smoke','input-ui-test','folder-packs-ui-test','pack-downloads-ui-test','pack-sync-test','microphone-ui-test','presentation-ui-test','turn-navigation-ui-test','empty-lobby-ui-test','screening-test','playback-sync-test')) {
         $process = Start-Process -FilePath (Join-Path $release 'BrokenPhone.exe') -ArgumentList ('--' + $check) -PassThru -Wait -WindowStyle Hidden
         $reportPath = Join-Path $release ($check + '.txt')
         if ($process.ExitCode -ne 0 -or !(Test-Path -LiteralPath $reportPath)) { throw ('Переносимая сборка не прошла проверку: ' + $check) }

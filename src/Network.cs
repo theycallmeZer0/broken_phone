@@ -187,9 +187,19 @@ namespace BrokenPhone
                         case "pack":
                             Host(player); Lobby();
                             if (message.pack == null || !File.Exists(message.pack.video)) throw new InvalidDataException("Файл выбранного пака недоступен.");
+                            string previousPackKey = pack.contentKey;
                             pack = PackLibrary.Load(String.IsNullOrEmpty(message.pack.root) ? Path.GetDirectoryName(message.pack.video) : message.pack.root, message.pack.workshopId); pack.preview = message.pack.preview; state.pack = pack.PublicCopy(); packRevision++;
                             RoleCasting.NewPack(state);
+                            foreach (var member in state.players) { member.prepared = false; if (previousPackKey != pack.contentKey) { member.downloadProgress = 0; member.loadStatus = "Ожидаем загрузку"; } }
                             Chat("Студия", "Выбран пак «" + pack.title + "»"); break;
+                        case "pack_download_progress":
+                        case "pack_download_ready":
+                        case "pack_download_failed":
+                            if (!pack.Selected || message.id != pack.contentKey || state.phase != "lobby" && state.phase != "casting" && state.phase != "loading") return;
+                            if (message.kind == "pack_download_ready") { player.downloadProgress = 1; player.loadStatus = "Пак загружен"; }
+                            else if (message.kind == "pack_download_failed") { player.downloadProgress = 0; player.loadStatus = "Ошибка загрузки: " + Clean(message.text, 120, "Повторите попытку"); }
+                            else if (!player.prepared && !Double.IsNaN(message.position) && !Double.IsInfinity(message.position)) { player.downloadProgress = Math.Max(0, Math.Min(1, message.position)); player.loadStatus = Clean(message.text, 120, "Загрузка"); }
+                            break;
                         case "start":
                             if (!pack.Selected || !File.Exists(pack.video)) throw new InvalidOperationException("Пак не выбран. Сначала выбери пак в мастерской.");
                             Host(player); Lobby(); if (state.players.Count < 2) throw new InvalidOperationException("Нужны хотя бы два игрока.");

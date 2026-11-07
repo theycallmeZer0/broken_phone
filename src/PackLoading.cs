@@ -42,6 +42,26 @@ namespace BrokenPhone
             }
         }
         static string Hex(byte[] bytes) { return BitConverter.ToString(bytes).Replace("-", "").ToLowerInvariant(); }
+        public static async Task<Pack> PrepareSelected(Pack remote, Func<WorkshopItem, Action<PackProgress>, CancellationToken, Task<Pack>> steamDownload, Func<string, string, Action<long, long>, CancellationToken, Task<string>> asset, Action<PackProgress> progress, CancellationToken token, string sourceFolder = null)
+        {
+            var cached = await Task.Run(() => Cached(remote, token), token).ConfigureAwait(false);
+            if (cached != null) return cached;
+            if (steamDownload != null && Regex.IsMatch(remote.workshopId ?? "", @"^\d{6,20}$"))
+            {
+                try
+                {
+                    progress(PackProgress.Step("Загружаем выбранный пак через Steam…"));
+                    var downloaded = await steamDownload(new WorkshopItem { Id = remote.workshopId, Title = remote.title }, progress, token).ConfigureAwait(false);
+                    token.ThrowIfCancellationRequested();
+                    if (downloaded.contentKey == remote.contentKey) return downloaded;
+                    sourceFolder = downloaded.root;
+                    progress(PackProgress.Step("Версия в Steam отличается. Получаем выбранную версию у ведущего…"));
+                }
+                catch (OperationCanceledException) { throw; }
+                catch (Exception) { token.ThrowIfCancellationRequested(); progress(PackProgress.Step("Steam недоступен. Получаем пак у ведущего…")); }
+            }
+            return await Prepare(remote, asset, progress, token, true, sourceFolder).ConfigureAwait(false);
+        }
         public static void Describe(Pack pack, CancellationToken token)
         {
             PackSources.Describe(pack, token);

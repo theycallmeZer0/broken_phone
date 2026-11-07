@@ -10,24 +10,41 @@ namespace BrokenPhone
         CancellationTokenSource preparationCancel;
         string preparedAckRound;
         long lastPreparationReport;
-        Task<string> LoadRoundPack(RoomClient room, Pack pack, string round)
+        string downloadingPackKey;
+        void EnsureSelectedPack()
+        {
+            if (state == null || !state.pack.Selected || state.phase != "lobby" && state.phase != "casting" && state.phase != "loading") return;
+            if (videoDownload != null && videoDownloadClient == client && downloadingPackKey == state.pack.contentKey) return;
+            videoDownloadClient = client; downloadingPackKey = state.pack.contentKey;
+            videoDownload = LoadRoundPack(client, state.pack);
+            var ignored = ObserveSelectedPack(videoDownload, client, downloadingPackKey);
+        }
+        async Task ObserveSelectedPack(Task<string> task, RoomClient room, string key)
+        {
+            try { await task; }
+            catch (OperationCanceledException) { }
+            catch (Exception error) { if (!disposed && client == room && state.pack.contentKey == key) Toast(error.GetBaseException().Message); }
+        }
+        Task<string> LoadRoundPack(RoomClient room, Pack pack)
         {
             if (preparationCancel != null) preparationCancel.Cancel(); preparationCancel = new CancellationTokenSource(); var token = preparationCancel.Token;
-            return LoadRoundPackCore(room, pack, round, token);
+            return LoadRoundPackCore(room, pack, token);
         }
-        async Task<string> LoadRoundPackCore(RoomClient room, Pack pack, string round, CancellationToken token)
+        async Task<string> LoadRoundPackCore(RoomClient room, Pack pack, CancellationToken token)
         {
             try
             {
-                var local = await PackContent.Prepare(pack, (asset, extension, progress, cancellation) => room.Asset(asset, extension, progress, cancellation, pack.contentKey), progress =>
+                var local = await PackContent.PrepareSelected(pack, steam != null && steam.Available ? (Func<WorkshopItem, Action<PackProgress>, CancellationToken, Task<Pack>>)workshop.DownloadProgress : null, (asset, extension, progress, cancellation) => room.Asset(asset, extension, progress, cancellation, pack.contentKey), progress =>
                 {
                     long now = Playback.Now; if (progress.Fraction < 1 && now - lastPreparationReport < 220) return; lastPreparationReport = now;
-                    if (!disposed && client == room) room.Send(new Message { kind = "pack_progress", round = round, id = pack.contentKey, position = Math.Max(0, progress.Fraction), text = progress.Stage });
-                }, token, true, PacksFolder);
+                    if (!disposed && client == room && !token.IsCancellationRequested) room.Send(new Message { kind = "pack_download_progress", id = pack.contentKey, position = Math.Max(0, progress.Fraction), text = progress.Stage });
+                }, token, PacksFolder);
+                token.ThrowIfCancellationRequested();
+                if (!disposed && client == room) room.Send(new Message { kind = "pack_download_ready", id = pack.contentKey });
                 return local.video;
             }
             catch (OperationCanceledException) { throw; }
-            catch (Exception e) { if (!disposed && client == room) room.Send(new Message { kind = "pack_failed", round = round, text = e.GetBaseException().Message }); throw; }
+            catch (Exception e) { if (!disposed && client == room && !token.IsCancellationRequested) room.Send(new Message { kind = "pack_download_failed", id = pack.contentKey, text = e.GetBaseException().Message }); throw; }
         }
         void AcknowledgePrepared()
         {

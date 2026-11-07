@@ -46,6 +46,7 @@ namespace BrokenPhone
                 var child = Process.Start(new ProcessStartInfo(Assembly.GetExecutingAssembly().Location, "--transfer-child") { UseShellExecute = false, CreateNoWindow = true });
                 File.WriteAllText(System.IO.Path.Combine(Paths.Cache, "cancel-child.pid"), child.Id.ToString()); if (!args.Contains("--transfer-worker-exits")) Thread.Sleep(30000); return 0;
             }
+            if (args.Contains("--lobby-pack-test")) return SelfTests.LobbyPackRegression();
             if (args.Contains("--steam-test")) return SelfTests.SteamIntegration();
             if (args.Contains("--steam-workshop-test")) return SelfTests.SteamWorkshopIntegration(args[Array.IndexOf(args, "--steam-workshop-test") + 1]);
             if (args.Contains("--design-test")) return DesignTests.Run();
@@ -421,9 +422,9 @@ namespace BrokenPhone
         {
             if (message.kind == "error" || message.kind == "kicked") { Toast(message.text); return; }
             if (message.kind != "state") return;
-            if (state != null && state.pack.contentKey != message.state.pack.contentKey) { sourceFile = null; sourcePrepared = false; videoDownload = null; }
+            if (state != null && state.pack.contentKey != message.state.pack.contentKey) { if (preparationCancel != null) preparationCancel.Cancel(); sourceFile = null; sourcePrepared = false; videoDownload = null; }
             string previousPhase = state == null ? "" : state.phase;
-            state = message.state; if (state.phase == "lobby" && preparationCancel != null) preparationCancel.Cancel(); if (steam.Available) steam.SetJoinable(state.phase == "lobby");
+            state = message.state; EnsureSelectedPack(); if (steam.Available) steam.SetJoinable(state.phase == "lobby");
             B("LobbyTab").IsEnabled = state.phase == "lobby" || state.phase == "result" && IsHost; RenderLobby();
             B("WorkshopTab").IsEnabled = state.phase != "casting";
             if (state.phase == "casting")
@@ -471,7 +472,7 @@ namespace BrokenPhone
                     var avatar = Avatar(p, 44); avatar.VerticalAlignment = VerticalAlignment.Center; row.Children.Add(avatar);
                     var label = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0, 0, 0) }; Grid.SetColumn(label, 1);
                     label.Children.Add(new TextBlock { Text = p.name + (p.id == client.Id ? " · ты" : ""), FontSize = 16, FontWeight = FontWeights.Bold, TextTrimming = TextTrimming.CharacterEllipsis, ToolTip = p.name });
-                    label.Children.Add(new TextBlock { Text = p.host ? "Ведущий" : "По сети", FontSize = 9, Foreground = Brush("#858478") }); row.Children.Add(label);
+                    label.Children.Add(new TextBlock { Text = (p.host ? "Ведущий" : "По сети") + (state.pack.Selected && !String.IsNullOrEmpty(p.loadStatus) ? " · " + (p.downloadProgress > 0 && p.downloadProgress < 1 ? (p.downloadProgress * 100).ToString("0") + "% · " : "") + p.loadStatus : ""), FontSize = 9, Foreground = Brush("#858478"), TextTrimming = TextTrimming.CharacterEllipsis, ToolTip = p.loadStatus }); row.Children.Add(label);
                     var actions = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Center }; Grid.SetColumn(actions, 2);
                     actions.Children.Add(new TextBlock { Text = p.ready ? "✓" : "·", Foreground = Brush(p.ready ? "#638352" : "#A19B8E"), FontSize = 19, VerticalAlignment = VerticalAlignment.Center });
                     if (IsHost && !p.host) { var kick = SmallButton("×", delegate { Send(new Message { kind = "kick", id = p.id }); }); kick.Padding = new Thickness(5, 0, 0, 0); kick.BorderThickness = new Thickness(0); actions.Children.Add(kick); }

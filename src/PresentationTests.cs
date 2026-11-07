@@ -30,7 +30,9 @@ namespace BrokenPhone
             var report = new List<string>(); RoomState original = state;
             try
             {
-                await Until(() => Me != null, "Нет лобби."); original = state;
+                await Until(() => Me != null, "Нет лобби.");
+                // Settle real lobby replies before installing the synthetic studio state.
+                await Until(() => videoDownload != null && videoDownload.Status == TaskStatus.RanToCompletion && Me.downloadProgress == 1, "Предзагрузка в лобби не завершилась."); original = state;
                 OpenSettings(); C<Border>("MicrophoneCheckPanel").BringIntoView(); window.UpdateLayout(); StableWave(C<SignalView>("MicSignal"), 5);
                 state = Json.Read<RoomState>(Json.Write(original)); state.phase = "recording"; state.round = "presentation";
                 state.pack.lines = Enumerable.Range(0, 80).Select(i => new Line { start = i, end = i + 1, role = "Персонаж " + (i + 1), text = "Реплика" }).ToList();
