@@ -25,9 +25,12 @@ namespace BrokenPhone
             {
                 settings.Volume = 0; OpenSettings(); window.UpdateLayout();
                 var graph = C<SignalView>("MicSignal");
-                if (graph.ActualHeight > 45 || graph.ActualHeight < 35 || graph.ActualWidth < 500 || B("MicReplayButton").IsEnabled) throw new Exception("Мини-волна или начальные кнопки проверки микрофона неверны.");
+                if (graph.ActualHeight > 45 || graph.ActualHeight < 35 || graph.ActualWidth < 360 || B("MicReplayButton").IsEnabled) throw new Exception("Мини-волна или начальные кнопки проверки микрофона неверны.");
                 if (window.FindName("SignalModeButton") != null || window.FindName("LinePrompt") != null || typeof(SignalView).GetProperty("Spectrogram") != null) throw new Exception("Остались спектрограмма или подсказка для сцены.");
                 var initial = SignalPixels(graph); byte[] sample = SelfTests.ToneWave(1.2, 440, 20000); var wave = SignalAnalysis.Envelope(Audio.ReadPcm(sample), 400);
+                var captured = Enumerable.Repeat(.5f, 172).ToArray(); RenderMicCapture(captured, 1.10, .5f);
+                if (graph.LiveCursorSeconds - captured.Length * SignalAnalysis.SamplesPerPoint / 44100.0 > .01) throw new Exception("Полоска записи опережает полученные данные микрофона.");
+                report.Add("PASS: recording cursor stays at the captured sample boundary even when the wall clock leads by 100 ms");
                 RenderMicCapture(wave, 2, .6f); var live = SignalPixels(graph);
                 if (initial.SequenceEqual(live) || !C<TextBlock>("MicSignalTime").Text.Contains("60%")) throw new Exception("Визуализация не отражает поступающий звук.");
                 SaveScreen("microphone-capture-preview.png"); RenderMicCapture(wave, 3.5, .4f);

@@ -7,13 +7,33 @@ namespace BrokenPhone
 {
     public static partial class SelfTests
     {
+        public static int SteamWorkshopIntegration(string id)
+        {
+            var report = new List<string>();
+            try
+            {
+                using (var steam = new SteamBridge(true))
+                using (var cancellation = new System.Threading.CancellationTokenSource(TimeSpan.FromSeconds(90)))
+                {
+                    Check(steam.Available, steam.Status); report.Add("PASS: current logged-in Steam client attached; AppID " + steam.AppId + "; no separate login");
+                    string folder = steam.DownloadWorkshopItem(id, progress => { }, cancellation.Token).GetAwaiter().GetResult();
+                    var pack = PackLibrary.Import(folder, id, cancellation.Token);
+                    Check(pack.DisplayLines > 0 && File.Exists(pack.video), "Загруженный пак не содержит видео и реплик.");
+                    Check(steam.Available && steam.AppId == 480 && !String.IsNullOrEmpty(steam.RefreshName()), "Основная сессия Steam 480 потеряна после фоновой загрузки.");
+                    report.Add("PASS: native SteamUGC download completed and imported into own Packs; item=" + id + "; lines=" + pack.DisplayLines + "; roles=" + pack.DisplayRoles);
+                    report.Add("PASS: the main Steam session remains attached to AppID 480 after the Workshop worker exits");
+                }
+                return 0;
+            }
+            catch (Exception error) { report.Add("FAIL: " + error.GetBaseException().Message); return 1; }
+            finally { File.WriteAllLines(Path.Combine(Paths.Base, "steam-workshop-test.txt"), report); }
+        }
         public static int SteamIntegration()
         {
             var report = new List<string>(); SteamBridge active = null;
             try
             {
-                uint app; ulong lobby;
-                Check(SteamBridge.TryInvitation("steam://joinlobby/480/109775241000000001/76561198000000000", out app, out lobby) && app == 480 && lobby == 109775241000000001, "Не прочитано приглашение Steam.");
+                Check(SteamBridge.ValidCode("A1B2C3") && SteamBridge.ValidCode("a1b2c3") && !SteamBridge.ValidCode("ABC") && !SteamBridge.ValidCode("ZZZZZZ"), "Неверная проверка кода комнаты.");
                 using (var steam = new SteamBridge(true))
                 {
                     active = steam; Check(steam.Available, steam.Status); report.Add("PASS: signed Valve SDK initialized with a logged-in Steam profile; App ID " + steam.AppId);
@@ -31,7 +51,15 @@ namespace BrokenPhone
                         host.Client.Connect("127.0.0.1", server.Port, server.Code, "Steam host test", server.Secret, steam.UserId); host.Wait(s => s.players.Count == 1);
                         steam.HostRoom(server.Code, server.Port).GetAwaiter().GetResult();
                         Check(steam.Hosting && steam.LobbyId != 0 && steam.OwnerId == steam.UserId && steam.Code == server.Code, "Лобби Steam не подготовлено.");
-                        report.Add("PASS: real friends-only Steam lobby created with game identity, protocol and room metadata");
+                        ulong found = 0; var lookupDeadline = DateTime.UtcNow.AddSeconds(18);
+                        while (found == 0)
+                        {
+                            try { found = steam.FindLobbyByCode(server.Code.ToLowerInvariant()).GetAwaiter().GetResult(); }
+                            catch (IOException) { if (DateTime.UtcNow >= lookupDeadline) throw; System.Threading.Thread.Sleep(400); }
+                        }
+                        Check(found == steam.LobbyId, "Поиск по коду нашёл другую комнату.");
+                        Check(steam.CodeForLobby(found).GetAwaiter().GetResult() == server.Code, "Из приглашения Steam не получен код комнаты.");
+                        report.Add("PASS: real Steam lobby published and found by six-character code with exact game/protocol filters and worldwide search; current room stays connected during lookup");
                         int tunnelPort = steam.OpenTunnel(steam.UserId);
                         guest.Client.Connect("127.0.0.1", tunnelPort, server.Code, "Steam P2P loopback test", "");
                         host.Wait(s => s.players.Count == 2, 10); guest.Wait(s => s.players.Count == 2, 10);
@@ -49,6 +77,7 @@ namespace BrokenPhone
                         }
                         guest.Wait(s => s.phase == "result"); host.Wait(s => s.phase == "result"); string final = guest.Client.Asset("result", ".mp4").GetAwaiter().GetResult(); CheckMixedVoices(final, pack);
                         host.Client.Send(new Message { kind = "result_ready", round = host.State.round }); host.Wait(s => s.resultReady.Contains(host.Client.Id));
+                        guest.Client.Send(new Message { kind = "result_ready", round = guest.State.round }); host.Wait(s => Playback.EveryoneReady(s));
                         Check(host.State.playbackVersion == 0, "Просмотр запущен автоматически."); host.Client.Send(new Message { kind = "playback", text = "start", round = host.State.round }); guest.Wait(s => s.playbackVersion == 1);
                         report.Add("PASS: source video, all four takes, assembled voiced MP4 and shared playback state transmitted through actual Steam SDK P2P");
                     }

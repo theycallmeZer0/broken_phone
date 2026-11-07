@@ -14,7 +14,7 @@ namespace BrokenPhone
         double finalVoiceGain, finalMovieGain;
         double FinalAudioPosition { get { return finalMixer == null ? 0 : finalMixer.Position; } }
         bool finalVideoOpened, changingFinalVolume, savingFinal;
-        string finalOpeningRound, finalAckRound, finalTaskRound;
+        string finalOpeningRound, finalAckRound, finalTaskRound, finalWarmingRound;
         RoomClient finalTaskClient;
         Task<string> finalVideoTask;
         CancellationTokenSource finalCancellation;
@@ -42,7 +42,7 @@ namespace BrokenPhone
             if (finalMixer != null) { finalMixer.Dispose(); finalMixer = null; }
             foreach (string pcm in finalPcmFiles) try { File.Delete(pcm); } catch (IOException) { } finalPcmFiles = new string[0];
             finalVideoOpened = finalMediaPrepared = false;
-            finalOpeningRound = finalAckRound = null; finalVideoTask = null; finalTaskClient = null; finalTaskRound = null;
+            finalOpeningRound = finalAckRound = finalWarmingRound = null; finalVideoTask = null; finalTaskClient = null; finalTaskRound = null;
             playbackPreparedVersion = 0; playbackAppliedVersion = 0; appliedPlaybackPlaying = false;
         }
         async Task<string> FinalVideo(RoomClient room, string round)
@@ -75,16 +75,29 @@ namespace BrokenPhone
             string[] pcmFiles = finalPcmFiles; double duration = state.resultDuration;
             await Task.WhenAll(Task.Run(() => DecodeFinalAudio(voicesTask.Result, pcmFiles[0], duration, token), token), Task.Run(() => DecodeFinalAudio(movieTask.Result, pcmFiles[1], duration, token), token));
             if (disposed || client != room || state == null || state.round != round || state.phase != "result") return;
-            finalMixer = new WaveMixer(pcmFiles[0], pcmFiles[1], duration);
+            finalMixer = new WaveMixer(pcmFiles[0], pcmFiles[1], duration, OutputAudio.Resolve(settings.OutputDevice));
             var video = C<MediaElement>("Video"); video.Close(); video.Source = null; video.Source = new Uri(videoTask.Result); video.Volume = 0; video.Pause();
             UpdateFinalVolumes(); RenderRound();
         }
-        void FinalPrepared()
+        async void FinalPrepared()
         {
-            if (state == null || state.phase != "result" || finalOpeningRound != state.round) return;
-            finalMediaPrepared = finalVideoOpened && finalMixer != null;
-            if (finalMediaPrepared && finalAckRound != state.round) { finalAckRound = state.round; Send(new Message { kind = "result_ready", round = state.round }); }
-            RenderRound();
+            if (state == null || state.phase != "result" || finalOpeningRound != state.round || !finalVideoOpened || finalMixer == null || finalWarmingRound == state.round || finalAckRound == state.round) return;
+            string round = state.round; var cancellation = finalCancellation; finalWarmingRound = round;
+            try
+            {
+                // MediaOpened reports metadata, before the first frame has been decoded.
+                // Warm the decoder silently behind the overlay before announcing readiness.
+                var video = C<MediaElement>("Video"); video.Volume = 0; video.Play();
+                await Task.Delay(180, cancellation.Token);
+                if (disposed || cancellation != finalCancellation || state == null || state.round != round || state.phase != "result") return;
+                video.Pause(); video.Position = TimeSpan.Zero;
+                await Task.Delay(180, cancellation.Token);
+                if (disposed || cancellation != finalCancellation || state == null || state.round != round || state.phase != "result") return;
+                finalMediaPrepared = true; finalAckRound = round; Send(new Message { kind = "result_ready", round = round }); RenderRound();
+            }
+            catch (OperationCanceledException) { }
+            catch (Exception error) { if (!disposed) Toast("Не удалось подготовить общий просмотр: " + error.Message); }
+            finally { if (finalWarmingRound == round) finalWarmingRound = null; }
         }
         static void DecodeFinalAudio(string input, string output, double duration, CancellationToken token)
         {

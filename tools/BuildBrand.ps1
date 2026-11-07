@@ -1,11 +1,15 @@
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName PresentationCore, PresentationFramework, WindowsBase
 $brand = Join-Path (Split-Path -Parent $PSScriptRoot) 'Assets\Brand'
-$reader = [System.Xml.XmlReader]::Create((Join-Path $brand 'Mark.xaml'))
-try { $drawing = [System.Windows.Markup.XamlReader]::Load($reader) } finally { $reader.Dispose() }
+$drawing = [System.Windows.Media.Imaging.BitmapImage]::new()
+$drawing.BeginInit()
+$drawing.CacheOption = [System.Windows.Media.Imaging.BitmapCacheOption]::OnLoad
+$drawing.UriSource = [System.Uri]::new((Join-Path $brand 'logo.png'))
+$drawing.EndInit()
+$drawing.Freeze()
 $sizes = @(16,24,32,48,64,128,256)
 $frames = @()
-foreach ($size in $sizes + @(512)) {
+foreach ($size in $sizes) {
     $visual = [System.Windows.Media.DrawingVisual]::new()
     $context = $visual.RenderOpen()
     $context.DrawImage($drawing, [System.Windows.Rect]::new(0,0,$size,$size))
@@ -16,8 +20,7 @@ foreach ($size in $sizes + @(512)) {
     $encoder.Frames.Add([System.Windows.Media.Imaging.BitmapFrame]::Create($bitmap))
     $stream = [System.IO.MemoryStream]::new()
     $encoder.Save($stream)
-    if ($size -eq 512) { [System.IO.File]::WriteAllBytes((Join-Path $brand 'logo.png'),$stream.ToArray()) }
-    else { $frames += ,@($size,$stream.ToArray()) }
+    $frames += ,@($size,$stream.ToArray())
     $stream.Dispose()
 }
 $output = [System.IO.File]::Create((Join-Path $brand 'BrokenPhone.ico'))

@@ -10,12 +10,12 @@ namespace BrokenPhone
     public static class Theme
     {
         static readonly Dictionary<string, string> Colors = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) {
-            { "#F5F1E8", "#141720" }, { "#FFFCF5", "#202534" }, { "#292923", "#EFF1FA" },
-            { "#858478", "#99A3BA" }, { "#77776B", "#AAB4CC" }, { "#99968A", "#818DA8" },
-            { "#E4ECCA", "#99D8B0" }, { "#F47E55", "#AC95FF" }, { "#EEEADF", "#2C3345" },
-            { "#EAE5D9", "#252C3D" }, { "#73915B", "#A69BFC" }, { "#638352", "#8FD7AA" },
-            { "#A19B8E", "#7B87A2" }, { "#D8D2C6", "#39435B" }, { "#C2BCB0", "#65718A" },
-            { "#B0A99A", "#65718A" }
+            { "#F5F1E8", "#17151D" }, { "#FFFCF5", "#26222E" }, { "#292923", "#F2EEF4" },
+            { "#858478", "#ABA1B7" }, { "#77776B", "#BDB2CA" }, { "#99968A", "#93879F" },
+            { "#E4ECCA", "#C5B4D2" }, { "#F47E55", "#CB9ABD" }, { "#EEEADF", "#35303F" },
+            { "#EAE5D9", "#302A39" }, { "#73915B", "#BFB0D2" }, { "#638352", "#D7B0CA" },
+            { "#A19B8E", "#94869F" }, { "#D8D2C6", "#4A4154" }, { "#C2BCB0", "#8C7C98" },
+            { "#B0A99A", "#8C7C98" }
         };
         public static SolidColorBrush Brush(string value)
         {

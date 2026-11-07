@@ -156,9 +156,9 @@ namespace BrokenPhone
                 using (var icon = System.Drawing.Icon.ExtractAssociatedIcon(Assembly.GetExecutingAssembly().Location))
                 using (var bitmap = icon.ToBitmap())
                 {
-                    int mint = 0, purple = 0;
-                    for (int y = 0; y < bitmap.Height; y++) for (int x = 0; x < bitmap.Width; x++) { var color = bitmap.GetPixel(x, y); if (color.A < 200) continue; if (color.G > color.R + 30 && color.G > color.B + 20) mint++; if (color.B > color.R + 30 && color.R > color.G + 10) purple++; }
-                    Check(mint > 5 && purple > 5, "В EXE не встроена иконка сломанного телефона."); results.Add("PASS: compiled EXE contains the mint/purple broken-phone icon");
+                    int mask = 0, tongue = 0, hood = 0;
+                    for (int y = 0; y < bitmap.Height; y++) for (int x = 0; x < bitmap.Width; x++) { var color = bitmap.GetPixel(x, y); if (color.A < 200) continue; if (color.R > 170 && color.G > 170 && color.B > 170) mask++; if (color.R > color.G + 25 && color.B > color.G + 15) tongue++; if (color.R < 90 && color.G < 90 && color.B < 110) hood++; }
+                    Check(mask > 10 && tongue > 2 && hood > 10, "В EXE не встроена новая иконка персонажа."); results.Add("PASS: compiled EXE contains the illustrated hooded mascot, white mask and pink tongue");
                 }
                 CancellationTests(results);
                 var invitation = Connection.Parse(Connection.Invitation("26.10.20.30", Connection.DefaultPort, "ABC123")); Check(invitation.Host == "26.10.20.30" && invitation.Port == Connection.DefaultPort && invitation.AbsolutePath == "/ABC123", "Приглашение Radmin повреждено");
@@ -233,16 +233,17 @@ namespace BrokenPhone
                     Check(File.ReadAllBytes(result).SequenceEqual(File.ReadAllBytes(hostResult)), "Игроки получили разные финальные видео.");
                     host.Client.Send(new Message { kind = "result_ready", round = host.State.round }); host.Wait(s => s.resultReady.Length == 1);
                     Check(host.State.playbackVersion == 0 && !host.State.playing, "Показ начался автоматически.");
-                    host.Client.Send(new Message { kind = "playback", text = "start", round = host.State.round }); host.Wait(s => s.playbackVersion == 1); guest.Wait(s => s.playbackVersion == 1);
-                    Check(!host.State.resultReady.Contains(guest.Client.Id), "Тест не проверяет запуск без готовности гостя.");
+                    host.Client.Send(new Message { kind = "playback", text = "start", round = host.State.round }); host.Error("всех игроков");
+                    Check(host.State.playbackVersion == 0 && !host.State.playing, "Показ у хоста начался до подготовки гостя.");
                     guest.Client.Send(new Message { kind = "result_ready", round = guest.State.round }); host.Wait(s => s.resultReady.Length == 2);
+                    host.Client.Send(new Message { kind = "playback", text = "start", round = host.State.round }); host.Wait(s => s.playbackVersion == 1); guest.Wait(s => s.playbackVersion == 1);
                     Check(host.State.playing && host.State.playbackAt == guest.State.playbackAt && host.State.playbackAt > Playback.Now, "Нет общего запланированного старта.");
                     guest.Client.Send(new Message { kind = "playback", text = "pause", round = guest.State.round }); guest.Error("ведущему");
                     host.Client.Send(new Message { kind = "playback", text = "pause", round = host.State.round }); host.Wait(s => s.playbackVersion == 2); guest.Wait(s => s.playbackVersion == 2);
                     Check(!host.State.playing && !guest.State.playing && host.State.playbackPosition == guest.State.playbackPosition, "Пауза не синхронизирована.");
                     host.Client.Send(new Message { kind = "playback", text = "restart", round = host.State.round }); host.Wait(s => s.playbackVersion == 3); guest.Wait(s => s.playbackVersion == 3);
                     Check(host.State.playing && guest.State.playing && host.State.playbackPosition == 0 && host.State.playbackAt == guest.State.playbackAt, "Общий повтор не синхронизирован.");
-                    results.Add("PASS: both players download identical final MP4; host starts manually without guest readiness; late readiness does not restart playback; host-only pause and replay");
+                    results.Add("PASS: identical final MP4; early start rejected until every player is ready; shared future start; host-only pause and replay");
                     host.Client.Send(new Message { kind = "reset" }); host.Wait(s => s.phase == "lobby" && s.players.All(p => !p.ready)); results.Add("PASS: replay resets ready state");
                 }
                 bool badWave = false; try { Audio.Validate(new byte[100], 4); } catch (InvalidDataException) { badWave = true; } Check(badWave, "Некорректная запись отклонена"); results.Add("PASS: malformed audio rejected");

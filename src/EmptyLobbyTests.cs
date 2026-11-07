@@ -15,7 +15,7 @@ namespace BrokenPhone
             try
             {
                 await Until(() => Me != null, "Комната без пака не создалась.");
-                if (state.pack.Selected || C<TextBlock>("PackTitle").Text != "Пак не выбран" || B("StartButton").IsEnabled || B("ReadyButton").IsEnabled || C<System.Windows.FrameworkElement>("PosterArt").Visibility == System.Windows.Visibility.Visible) throw new Exception("В лобби выбран тестовый пак или доступен старт без пака.");
+                if (state.pack.Selected || C<TextBlock>("PackTitle").Text != "Пак не выбран" || B("StartButton").IsEnabled || B("ReadyButton").IsEnabled || C<System.Windows.FrameworkElement>("PosterArt").Visibility != System.Windows.Visibility.Visible || C<System.Windows.FrameworkElement>("EmptyPackSymbol") == null) throw new Exception("Нет векторного пустого состояния или доступен старт без пака.");
                 if (PackLibrary.Installed().Any(pack => pack.isTestPack)) throw new Exception("Тестовый пак попал в обычную библиотеку.");
                 Send(new Message { kind = "start" }); await Until(() => C<TextBlock>("ToastText").Text.Contains("Пак не выбран"), "Сервер не отклоняет старт без пака.");
                 if (state.phase != "lobby") throw new Exception("Игра без выбранного пака началась.");

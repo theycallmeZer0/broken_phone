@@ -70,14 +70,14 @@ namespace BrokenPhone
             try
             {
                 var cached = await Task.Run(() => PackContent.Cached(remote, token), token).ConfigureAwait(false);
-                if (cached != null) { progress(new PackProgress { Stage = "Локальный пак готов — передача не нужна", Fraction = 1 }); return cached; }
+                if (cached != null) { progress(new PackProgress { Stage = "Пак готов", Fraction = 1 }); return cached; }
                 var plan = await Task.Run(() =>
                 {
                     var folders = Folders(remote, selected, token); var matches = new List<Match>();
                     for (int i = 0; i < remote.sourceFiles.Count; i++)
                     {
                         token.ThrowIfCancellationRequested(); var file = remote.sourceFiles[i];
-                        progress(PackProgress.Step("Сверяем файлы пака: " + (i + 1) + " / " + remote.sourceFiles.Count));
+                        progress(PackProgress.Step("Подготовка: " + (i + 1) + " / " + remote.sourceFiles.Count));
                         matches.Add(new Match { File = file, Index = i, Local = Find(folders, file, token) });
                     }
                     return matches;
@@ -87,20 +87,20 @@ namespace BrokenPhone
                 {
                     token.ThrowIfCancellationRequested(); string source = item.Local;
                     if (source == null)
-                        source = await asset("packfile:" + item.Index, ".packpart", (bytes, size) => progress(PackProgress.Bytes("Догружаем " + item.File.path, received + bytes, missing)), token).ConfigureAwait(false);
+                        source = await asset("packfile:" + item.Index, ".packpart", (bytes, size) => progress(PackProgress.Bytes("Подготовка пака", received + bytes, missing)), token).ConfigureAwait(false);
                     if (!await Task.Run(() => PackSources.Matches(source, item.File, token), token).ConfigureAwait(false)) throw new InvalidDataException("Не совпала контрольная сумма: " + item.File.path);
                     string destination = PackSources.SafeFile(stage, item.File.path);
                     await Task.Run(() => PackSources.Copy(source, destination, token), token).ConfigureAwait(false);
                     if (!await Task.Run(() => PackSources.Matches(destination, item.File, token), token).ConfigureAwait(false)) throw new InvalidDataException("Файл изменился при копировании: " + item.File.path);
                     if (item.Local == null) received += item.File.bytes;
                 }
-                progress(PackProgress.Step(missing == 0 ? "Пак найден локально. Подготавливаем видео без передачи…" : "Недостающие файлы получены. Подготавливаем видео…"));
+                progress(PackProgress.Step("Подготавливаем видео…"));
                 var prepared = await Task.Run(() => PackLibrary.PrepareFolder(stage, remote.workshopId, token, remote), token).ConfigureAwait(false);
                 if (prepared.contentKey != remote.contentKey) throw new InvalidDataException("Содержимое пака не совпало после подготовки.");
-                token.ThrowIfCancellationRequested(); if (Directory.Exists(target)) Directory.Delete(target, true); Directory.Move(stage, target);
+                token.ThrowIfCancellationRequested(); if (Directory.Exists(target)) Directory.Delete(target, true); PackContent.MovePreparedDirectory(stage, target, token);
                 File.WriteAllText(Path.Combine(target, ".source"), remote.workshopId ?? "");
                 var result = await Task.Run(() => PackLibrary.Load(target, remote.workshopId, token), token).ConfigureAwait(false);
-                progress(new PackProgress { Stage = missing == 0 ? "Готово — видео использовано из локального пака" : "Готово — загружены только недостающие файлы", Fraction = 1 }); return result;
+                progress(new PackProgress { Stage = "Пак готов", Fraction = 1 }); return result;
             }
             finally { if (Directory.Exists(stage)) Directory.Delete(stage, true); install.Release(); }
         }

@@ -262,7 +262,7 @@ namespace BrokenPhone
                 PrepareFolder(stage, workshopId, cancellation);
                 cancellation.ThrowIfCancellationRequested();
                 if (Directory.Exists(destination)) Directory.Delete(destination, true);
-                Directory.Move(stage, destination);
+                PackContent.MovePreparedDirectory(stage, destination, cancellation);
                 File.WriteAllText(Path.Combine(destination, ".source"), workshopId ?? "");
                 return Load(destination, workshopId);
             }

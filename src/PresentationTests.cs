@@ -57,14 +57,14 @@ namespace BrokenPhone
                     report.Add("PASS: original preview has a local volume slider; decoded audio gain changes immediately, multiplies the master volume, persists, and leaves own-take playback volume independent; all playback is muted or paused during testing");
                 }
                 finally { voice.Close(); C<Slider>("VolumeSlider").Value = 0; File.Delete(sample); }
-                var scroll = C<ScrollViewer>("VoiceChainScroll"); var rows = C<StackPanel>("TurnList");
-                if (rows.Children.Count != 80 || rows.Children.OfType<TextBlock>().Any(row => row.Text.Contains("… ещё")) || scroll.ScrollableHeight <= 0) throw new Exception("Цепочка голосов обрезана.");
-                scroll.ScrollToEnd(); window.UpdateLayout(); double offset = scroll.VerticalOffset;
-                if (offset <= 0) throw new Exception("Нельзя прокрутить полную цепочку.");
+                var rows = C<StackPanel>("TurnList");
+                if (rows.Children.Count != 80 || C<StackPanel>("ChainPagination").Visibility != Visibility.Visible) throw new Exception("Цепочка голосов обрезана.");
+                chainPage = 100; UpdateChainPage(); window.UpdateLayout(); int page = chainPage;
+                if (((FrameworkElement)rows.Children[79]).Visibility != Visibility.Visible) throw new Exception("Последняя реплика недоступна через страницы.");
                 RenderRound(); window.UpdateLayout();
-                if (scroll.VerticalOffset < offset - 2) throw new Exception("Обновление записи сбрасывает прокрутку цепочки.");
+                if (chainPage != page) throw new Exception("Обновление записи сбрасывает страницу цепочки.");
                 SaveScreen("full-voice-chain-preview.png");
-                report.Add("PASS: all 80 dialogue rows remain accessible through scrolling, without a truncated summary; state refresh preserves scroll position");
+                report.Add("PASS: all 80 dialogue rows remain accessible through pages without scrolling; state refresh preserves the selected page");
             }
             catch (Exception error) { report.Add("FAIL: " + error); }
             finally { state = original; File.WriteAllLines(System.IO.Path.Combine(Paths.Base, "presentation-ui-test.txt"), report); window.Close(); }

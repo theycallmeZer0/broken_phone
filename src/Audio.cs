@@ -35,6 +35,8 @@ namespace BrokenPhone
         Exception failure;
         public volatile float Level;
         public volatile float[] Waveform = new float[0];
+        long capturedBytes;
+        public double CapturedSeconds { get { return Interlocked.Read(ref capturedBytes) / 88200.0; } }
         public bool Recording { get; private set; }
         public static string[] Devices()
         {
@@ -45,7 +47,7 @@ namespace BrokenPhone
         public void Start(int deviceIndex)
         {
             if (Recording) throw new InvalidOperationException("Запись уже идёт.");
-            result = null; failure = null; Waveform = new float[0]; stop.Reset();
+            result = null; failure = null; Waveform = new float[0]; Interlocked.Exchange(ref capturedBytes, 0); stop.Reset();
             var format = new Format { tag = 1, channels = 1, rate = 44100, average = 88200, align = 2, bits = 16 };
             IntPtr handle;
             uint error = waveInOpen(out handle, deviceIndex <= 0 ? UInt32.MaxValue : (uint)(deviceIndex - 1), ref format, UIntPtr.Zero, UIntPtr.Zero, 0);
@@ -56,8 +58,8 @@ namespace BrokenPhone
             {
                 for (int i = 0; i < 8; i++)
                 {
-                    IntPtr data = Marshal.AllocHGlobal(8820), header = Marshal.AllocHGlobal((int)headerSize); buffers.Add(data); headers.Add(header);
-                    Marshal.StructureToPtr(new Header { data = data, size = 8820 }, header, false);
+                    IntPtr data = Marshal.AllocHGlobal(1764), header = Marshal.AllocHGlobal((int)headerSize); buffers.Add(data); headers.Add(header);
+                    Marshal.StructureToPtr(new Header { data = data, size = 1764 }, header, false);
                     if (waveInPrepareHeader(handle, header, headerSize) != 0 || waveInAddBuffer(handle, header, headerSize) != 0) throw new InvalidOperationException("Не удалось подготовить микрофон.");
                 }
                 if (waveInStart(handle) != 0) throw new InvalidOperationException("Не удалось начать запись.");
@@ -85,7 +87,9 @@ namespace BrokenPhone
                             int sample = Math.Abs((int)BitConverter.ToInt16(data, s)); peak = Math.Max(peak, sample); wavePeak = Math.Max(wavePeak, sample / 32768f);
                             if (++waveSamples == SignalAnalysis.SamplesPerPoint) { envelope.Add(wavePeak); wavePeak = 0; waveSamples = 0; }
                         }
-                        Level = peak / 32768f; Waveform = envelope.ToArray();
+                        var snapshot = envelope.ToArray();
+                        if (waveSamples > 0) { Array.Resize(ref snapshot, snapshot.Length + 1); snapshot[snapshot.Length - 1] = wavePeak; }
+                        Level = peak / 32768f; Waveform = snapshot; Interlocked.Exchange(ref capturedBytes, pcm.Length);
                     };
                     try
                     {

@@ -241,14 +241,15 @@ namespace BrokenPhone
                             break;
                         case "playback":
                             Host(player); if (state.phase != "result" || message.round != state.round || !state.resultReady.Contains(player.id)) throw new InvalidOperationException("Дождись загрузки видео у ведущего.");
+                            if (!Playback.EveryoneReady(state)) throw new InvalidOperationException("Дождись подготовки видео у всех игроков.");
                             if (state.playbackVersion == 0 && message.text != "start") throw new InvalidOperationException("Ведущий должен запустить просмотр.");
-                            long at = Playback.Now + 350; double position = Playback.Position(state, at);
+                            long at = Playback.Now + Playback.StartLeadMilliseconds; double position = Playback.Position(state, at);
                             switch (message.text)
                             {
-                                case "start": if (state.playbackVersion != 0) return; position = 0; state.playing = true; at += 350; break;
+                                case "start": if (state.playbackVersion != 0) return; position = 0; state.playing = true; break;
                                 case "pause": state.playing = false; break;
                                 case "resume": state.playing = true; break;
-                                case "restart": position = 0; state.playing = true; at += 400; break;
+                                case "restart": position = 0; state.playing = true; break;
                                 case "seek": if (Double.IsNaN(message.position) || Double.IsInfinity(message.position)) throw new InvalidDataException("Неверная позиция."); position = Math.Max(0, Math.Min(state.resultDuration, message.position)); break;
                                 case "end": if (message.index != state.playbackVersion) return; position = state.resultDuration; state.playing = false; at = Playback.Now; break;
                                 default: throw new InvalidDataException("Неизвестное управление просмотром.");

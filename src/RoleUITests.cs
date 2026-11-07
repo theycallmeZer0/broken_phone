@@ -38,7 +38,10 @@ namespace BrokenPhone
                 SaveScreen("game-lobby-preview.png"); B("StartButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
                 await Until(() => currentPage == "Roles" && other.currentPage == "Roles" && state.phase == "casting" && other.state.phase == "casting", "Обязательный выбор ролей не открылся у обоих игроков.");
                 if (roleControls.Count != 2 || roleControls.Values.Any(card => card.Avatar != null || !card.Choose.IsEnabled) || B("BeginDubbingButton").IsEnabled || B("LobbyTab").IsEnabled || other.B("AutoRolesButton").IsEnabled || window.FindName("RolesReadyButton") != null || window.FindName("ManualRolesButton") != null) throw new Exception("Выбор не доступен сразу или остались лишние кнопки.");
+                window.UpdateLayout(); CheckButtonText(B("AutoRolesButton")); CheckButtonText(B("BeginDubbingButton"));
+                foreach (var card in roleControls.Values) CheckButtonText(card.Choose);
                 SaveScreen("roles-pending-preview.png");
+                report.Add("PASS: casting toolbar, role buttons and start button fit their full text with padding");
                 B("AutoRolesButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); await Until(() => RoleCasting.Complete(state) && RoleCasting.Complete(other.state), "Не работает автоматическое распределение.");
                 await Until(() => B("BeginDubbingButton").IsEnabled && RoleCasting.Complete(other.state), "После автоматического распределения требуется подтверждение.");
                 string guestRole = other.state.roles.First(role => role.playerId == other.client.Id).role;

@@ -17,11 +17,6 @@ namespace BrokenPhone
 
         void InitializeFolderPacks()
         {
-            B("ChoosePacksFolderButton").Click += async delegate
-            {
-                string folder = PickPacksFolder(PacksFolder);
-                if (folder != null) await Guard(() => ApplyPackSource(true, folder));
-            };
             B("BrowsePacksFolderButton").Click += delegate
             {
                 string folder = PickPacksFolder(TBox("PacksFolderInput").Text);
@@ -57,22 +52,24 @@ namespace BrokenPhone
 
         void RenderPackSource()
         {
-            bool local = settings.LocalPacks;
-            Text("WorkshopTitle", local ? "Паки из папки" : "Мастерская");
-            Text("WorkshopSubtitle", local ? "Локальная коллекция · вход в Steam для паков не требуется" : "Steam Workshop · Dub Together · 5020310");
-            Text("PackSourcePath", PacksFolder); C<TextBlock>("PackSourcePath").ToolTip = PacksFolder;
-            C<StackPanel>("LocalPacksNotice").Visibility = local ? Visibility.Visible : Visibility.Collapsed;
-            C<StackPanel>("PackDownloadToolbar").Visibility = local ? Visibility.Collapsed : Visibility.Visible;
-            C<ComboBox>("SortCombo").Visibility = local ? Visibility.Collapsed : Visibility.Visible;
-            C<ColumnDefinition>("SortColumn").Width = new GridLength(local ? 0 : 200);
-            B("PreviousPage").Visibility = B("NextPage").Visibility = local ? Visibility.Collapsed : Visibility.Visible;
-            B("SearchButton").Content = local ? "Обновить" : "Найти";
-            B("MyPacksFolderButton").Content = local ? "Открыть папку ↗" : "Мои паки ↗";
-            TBox("SearchInput").Tag = local ? "Название пака" : "Название пака или ссылка Steam";
-            TBox("SearchInput").ToolTip = local ? "Поиск по названиям паков в выбранной папке" : "Название пака, ссылка Steam или ID";
+            bool local = settings.LocalPacks; bool library = showMyPacks;
+            Text("WorkshopTitle", local ? "Паки из папки" : library ? "Мои паки" : "Мастерская");
+            Text("WorkshopSubtitle", local ? "Локальная коллекция · вход в Steam для паков не требуется" : library ? "Загруженные паки · твоя коллекция" : "Steam Workshop · Dub Together");
+            C<StackPanel>("PackDownloadToolbar").Visibility = local || library ? Visibility.Collapsed : Visibility.Visible;
+            C<ComboBox>("SortCombo").Visibility = local || library ? Visibility.Collapsed : Visibility.Visible;
+            C<ColumnDefinition>("SortColumn").Width = new GridLength(local || library ? 0 : 220);
+            B("PreviousPage").Visibility = B("NextPage").Visibility = local || library ? Visibility.Collapsed : Visibility.Visible;
+            Text("MyPacksLabel", "Мои паки"); Text("WorkshopPacksLabel", "Мастерская");
+            C<TextBlock>("MyPacksLabel").Foreground = Brush(library ? "#D7CBFF" : "#ABA1B7");
+            C<TextBlock>("WorkshopPacksLabel").Foreground = Brush(library ? "#ABA1B7" : "#D7CBFF");
+            C<TextBlock>("MyPacksLabel").FontWeight = library ? FontWeights.Bold : FontWeights.Normal;
+            C<TextBlock>("WorkshopPacksLabel").FontWeight = library ? FontWeights.Normal : FontWeights.Bold;
+            B("MyPacksFolderButton").ToolTip = library ? "Открыть мастерскую" : "Открыть мои паки";
+            TBox("SearchInput").Tag = local || library ? "Название пака" : "Название пака или ссылка Steam";
+            TBox("SearchInput").ToolTip = local || library ? "Поиск по названиям паков в выбранной папке" : "Название пака, ссылка Steam или ID";
             if (local) C<ComboBox>("LanguageCombo").SelectedIndex = 0;
-            Text("PageLabel", local ? "Локальная коллекция" : "Страница " + workshopPage);
-            Text("WorkshopStatus", local ? "Выбери папку с распакованными паками Dub Together или pack.json." : "Каталог загружается из Steam.");
+            Text("PageLabel", local || library ? "" : "Страница " + workshopPage);
+            Text("WorkshopStatus", "");
         }
 
         async Task ApplyPackSource(bool local, string folder)

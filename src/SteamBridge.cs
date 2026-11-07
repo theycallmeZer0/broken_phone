@@ -20,6 +20,7 @@ namespace BrokenPhone
         Task worker;
         volatile bool disposed;
         public bool Available { get; private set; }
+        public bool OverlayActive { get; private set; }
         public string Status { get; private set; }
         public uint AppId { get; private set; }
         public ulong UserId { get; private set; }
@@ -45,6 +46,7 @@ namespace BrokenPhone
         internal string transportError = "";
         internal string TransportDetails { get { lock (Gate) return "sent=" + sentPackets + ", received=" + receivedPackets + ", rejected=" + rejectedPackets + ", requests=" + sessionRequests + ", tunnels=" + tunnels.Count + ", error=" + transportError; } }
         public event Action<ulong> JoinRequested;
+        public event Action<bool> OverlayChanged;
         public SteamBridge(bool enable)
         {
             Status = "Steam не подключён"; if (!enable) return;
@@ -119,7 +121,9 @@ namespace BrokenPhone
                 finally { Marshal.FreeHGlobal(memory); }
             }
             else if (callback.Id == 333 && callback.Size >= 16) { var handler = JoinRequested; if (handler != null) handler(unchecked((ulong)Marshal.ReadInt64(callback.Data))); }
+            else if (callback.Id == 331 && callback.Size >= 1) { OverlayActive = Marshal.ReadByte(callback.Data) != 0; var handler = OverlayChanged; if (handler != null) handler(OverlayActive); }
             else if (callback.Id == 1221 && callback.Size >= 708) SocketStatus(callback.Data);
+            else if (callback.Id == 3406 && callback.Size >= 20) WorkshopDownloaded(callback.Data);
         }
 
         bool AllowedPeer(ulong id)
@@ -133,7 +137,7 @@ namespace BrokenPhone
         public async Task HostRoom(string code, int port)
         {
             LeaveRoom(); int generation = roomGeneration;
-            byte[] result = await Call(() => SteamNative.SteamAPI_ISteamMatchmaking_CreateLobby(matchmaking, 1, 8), 513);
+            byte[] result = await Call(() => SteamNative.SteamAPI_ISteamMatchmaking_CreateLobby(matchmaking, 2, 8), 513);
             int status = BitConverter.ToInt32(result, 0); ulong lobby = BitConverter.ToUInt64(result, 8);
             if (status != 1 || lobby == 0) throw new IOException("Steam не создал комнату (код " + status + ").");
             lock (Gate)
@@ -163,12 +167,6 @@ namespace BrokenPhone
             }
         }
         public void SetJoinable(bool value) { lock (Gate) if (Available && Hosting && LobbyId != 0) SteamNative.SteamAPI_ISteamMatchmaking_SetLobbyJoinable(matchmaking, LobbyId, value); }
-        public string Invitation { get { lock (Gate) return "steam://joinlobby/" + AppId + "/" + LobbyId + "/" + OwnerId; } }
-        public static bool TryInvitation(string text, out uint appId, out ulong lobby)
-        {
-            appId = 0; lobby = 0; Uri uri; if (!Uri.TryCreate((text ?? "").Trim(), UriKind.Absolute, out uri) || uri.Scheme != "steam" || uri.Host != "joinlobby") return false;
-            string[] parts = uri.AbsolutePath.Trim('/').Split('/'); return parts.Length >= 2 && UInt32.TryParse(parts[0], out appId) && UInt64.TryParse(parts[1], out lobby) && appId != 0 && lobby != 0;
-        }
         public List<SteamFriend> Friends()
         {
             lock (Gate)
@@ -195,7 +193,7 @@ namespace BrokenPhone
         public void Dispose()
         {
             disposed = true; LeaveRoom(); if (worker != null) worker.Wait(2000);
-            lock (Gate) { foreach (var request in pending.Values) request.Result.TrySetException(new IOException("Steam закрыт.")); pending.Clear(); if (Available) SteamNative.SteamAPI_Shutdown(); Available = false; }
+            lock (Gate) { foreach (var request in pending.Values) request.Result.TrySetException(new IOException("Steam закрыт.")); pending.Clear(); foreach (var request in workshopRequests.Values) request.TrySetException(new IOException("Steam закрыт.")); workshopRequests.Clear(); if (Available) SteamNative.SteamAPI_Shutdown(); Available = false; }
         }
     }
 }

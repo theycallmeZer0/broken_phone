@@ -28,6 +28,10 @@ namespace BrokenPhone
                 window.Show(); window.UpdateLayout();
                 var panel = (WrapPanel)window.FindName("PackCards");
                 var cards = panel.Children.Cast<FrameworkElement>().ToArray();
+                foreach (string removed in new[] { "SearchButton", "PreviousGalleryButton", "NextGalleryButton", "ImportButton", "ChoosePacksFolderButton", "SteamOverlayButton", "HelpButton" }) if (window.FindName(removed) != null) throw new Exception("Лишняя кнопка: " + removed);
+                var gallery = (ScrollViewer)window.FindName("PackViewport"); gallery.ScrollToEnd(); window.UpdateLayout();
+                if (gallery.ScrollableHeight <= 0 || gallery.VerticalOffset <= 0 || cards.Any(card => card.Visibility != Visibility.Visible)) throw new Exception("Все паки не доступны через единую прокрутку.");
+                gallery.ScrollToTop(); window.UpdateLayout();
                 var first = cards[0].TransformToAncestor(panel).Transform(new Point());
                 var third = cards[2].TransformToAncestor(panel).Transform(new Point());
                 if (Math.Abs(first.Y - third.Y) > 1 || panel.ActualWidth - third.X - cards[2].ActualWidth > 20)
@@ -38,7 +42,7 @@ namespace BrokenPhone
                 {
                     root.Width = width; window.UpdateLayout(); int columns = Math.Max(1, (int)Math.Floor((panel.ActualWidth + 18) / 358));
                     var last = cards[columns - 1]; var right = last.TransformToAncestor(panel).Transform(new Point(last.ActualWidth, 0));
-                    if (panel.ActualWidth - right.X > 3 || right.X > panel.ActualWidth + 1) throw new Exception("Grid does not fill width at " + width);
+                    if (panel.ActualWidth - right.X > 3 || right.X > panel.ActualWidth + 1) throw new Exception("Grid does not fill width at " + width + ": viewport=" + panel.ActualWidth + ", edge=" + right.X + ", columns=" + columns + ", root=" + root.ActualWidth);
                 }
                 root.Width = 1440; window.UpdateLayout();
                 if (root.Children.OfType<System.Windows.Shapes.Ellipse>().Any()) throw new Exception("В интерфейсе остались декоративные полукруги.");

@@ -31,21 +31,33 @@ namespace BrokenPhone
         readonly List<IntPtr> headers = new List<IntPtr>(), buffers = new List<IntPtr>();
         readonly byte[] voice = new byte[FramesPerBlock * BytesPerFrame], movie = new byte[FramesPerBlock * BytesPerFrame], output = new byte[FramesPerBlock * BytesPerFrame];
         readonly uint headerSize = (uint)Marshal.SizeOf(typeof(Header));
-        FileStream voices, background;
+        Stream voices, background;
         IntPtr device;
         Task worker;
         bool disposed, playing;
         long origin, queued, totalFrames;
         double voiceGain = 1, movieGain = 1;
         public Exception Failure { get; private set; }
+        public uint OutputDeviceId { get; private set; }
 
-        public WaveMixer(string voiceFile, string movieFile, double duration)
+        public WaveMixer(string voiceFile, string movieFile, double duration, uint outputDevice = UInt32.MaxValue)
         {
             try
             {
-                voices = File.OpenRead(voiceFile); background = File.OpenRead(movieFile); totalFrames = (long)Math.Ceiling(duration * 44100);
+                voices = File.OpenRead(voiceFile); background = File.OpenRead(movieFile); Initialize(duration, outputDevice);
+            }
+            catch { Dispose(); throw; }
+        }
+        public WaveMixer(byte[] stereoPcm, uint outputDevice)
+        {
+            try { voices = new MemoryStream(stereoPcm, false); Initialize(stereoPcm.Length / 176400.0, outputDevice); }
+            catch { Dispose(); throw; }
+        }
+        void Initialize(double duration, uint outputDevice)
+        {
+                totalFrames = (long)Math.Ceiling(duration * 44100); OutputDeviceId = outputDevice;
                 var format = new Format { tag = 1, channels = 2, rate = 44100, average = 176400, align = 4, bits = 16 };
-                Check(waveOutOpen(out device, UInt32.MaxValue, ref format, UIntPtr.Zero, UIntPtr.Zero, 0)); Check(waveOutPause(device));
+                Check(waveOutOpen(out device, outputDevice, ref format, UIntPtr.Zero, UIntPtr.Zero, 0)); Check(waveOutPause(device));
                 for (int i = 0; i < 3; i++)
                 {
                     IntPtr data = Marshal.AllocHGlobal(output.Length), pointer = Marshal.AllocHGlobal((int)headerSize); buffers.Add(data); headers.Add(pointer);
@@ -57,8 +69,6 @@ namespace BrokenPhone
                     try { while (true) { lock (gate) { if (disposed) return; if (playing) Fill(); } Thread.Sleep(4); } }
                     catch (Exception error) { Failure = error; }
                 }, CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
-            }
-            catch { Dispose(); throw; }
         }
         static void Check(uint result) { if (result != 0) throw new IOException("Не удалось открыть воспроизведение звука Windows (код " + result + ")."); }
         double PositionLocked()
@@ -81,7 +91,7 @@ namespace BrokenPhone
         void SeekLocked(double seconds, bool play)
         {
             Check(waveOutReset(device)); Check(waveOutPause(device)); origin = queued = Math.Min(totalFrames, Math.Max(0, (long)Math.Round(seconds * 44100)));
-            voices.Position = Math.Min(voices.Length, queued * BytesPerFrame); background.Position = Math.Min(background.Length, queued * BytesPerFrame); Fill(); playing = play;
+            voices.Position = Math.Min(voices.Length, queued * BytesPerFrame); if (background != null) background.Position = Math.Min(background.Length, queued * BytesPerFrame); Fill(); playing = play;
             if (play) Check(waveOutRestart(device));
         }
         public void Pause() { lock (gate) { if (!disposed) { Check(waveOutPause(device)); playing = false; } } }
@@ -89,6 +99,7 @@ namespace BrokenPhone
         static void ReadBlock(Stream stream, byte[] bytes, int count)
         {
             Array.Clear(bytes, 0, bytes.Length); int offset = 0, read;
+            if (stream == null) return;
             while (offset < count && (read = stream.Read(bytes, offset, count - offset)) > 0) offset += read;
         }
         void Fill()

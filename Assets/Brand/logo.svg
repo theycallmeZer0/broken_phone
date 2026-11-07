@@ -1,8 +1,1 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="-1 -1 98 98">
-  <defs><clipPath id="lower"><path d="M8 78 78 8H96V96H8Z"/></clipPath></defs>
-  <rect width="96" height="96" rx="22" fill="#202534" stroke="#39435b" stroke-width="2"/>
-  <path id="phone" d="M26 18C20 18 16 24 17 33C20 55 41 76 63 79C72 80 78 74 78 68V59Q78 55 73 54L62 51Q58 50 56 54L52 61C44 57 38 51 34 44L41 39Q44 37 43 33L39 22Q38 18 33 18Z" fill="#9adcb7"/>
-  <path d="M26 18C20 18 16 24 17 33C20 55 41 76 63 79C72 80 78 74 78 68V59Q78 55 73 54L62 51Q58 50 56 54L52 61C44 57 38 51 34 44L41 39Q44 37 43 33L39 22Q38 18 33 18Z" fill="#b39aff" clip-path="url(#lower)"/>
-  <path d="M23 55 34 51 39 58 47 47 54 50 66 40" fill="none" stroke="#202534" stroke-width="5.8" stroke-linecap="round" stroke-linejoin="round"/>
-  <path d="M65 19 58 29 66 30 60 39" fill="none" stroke="#e9d59b" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
-</svg>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 1280 1280"><title>Broken Phone mascot</title><image width="1280" height="1280" xlink:href="logo.png" /></svg>

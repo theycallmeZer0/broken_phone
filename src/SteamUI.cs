@@ -13,11 +13,65 @@ namespace BrokenPhone
     {
         SteamBridge steam;
         DateTime nextPersonaCheck;
+        readonly System.Windows.Threading.DispatcherTimer overlayFrames = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(30) };
+        bool overlayFrame;
+        readonly System.Windows.Media.Brush overlayRefreshA = Brush("#01000000"), overlayRefreshB = Brush("#02000000");
+        DateTime overlayHandoffUntil;
+        bool SteamOverlayHandoff { get { return DateTime.UtcNow < overlayHandoffUntil || steam != null && steam.OverlayActive; } }
+        void PrepareSteamHotkey()
+        {
+            // Steam owns its overlay shortcut. Calling ActivateGameOverlay here
+            // opens a second UI while Steam is already processing Shift+Tab.
+            overlayHandoffUntil = DateTime.UtcNow.AddSeconds(3);
+            if (steam == null || !steam.Available || !steam.OverlayEnabled) Toast("Оверлей Steam пока недоступен. Включи его в клиенте Steam и перезапусти игру.");
+        }
+        public async Task OverlaySmoke()
+        {
+            var report = new System.Collections.Generic.List<string>();
+            try
+            {
+                await Until(() => steam.Available && steam.LobbyId != 0, "Steam не подключился к игре.");
+                await Until(() => steam.OverlayEnabled, "Оверлей не подключился к графике WPF.", 15);
+                window.UpdateLayout(); var repaint = C<Border>("SteamOverlayRefresh");
+                CheckOverlayClientCoverage("Steam overlay");
+                if (repaint.IsHitTestVisible) throw new Exception("Слой обновления Steam перехватывает ввод.");
+                report.Add("PASS: Steam overlay hook enabled after early SDK initialization and before WPF rendering");
+                if (!steam.OpenOverlay(true)) throw new Exception("Steam не открыл приглашения.");
+                await Until(() => steam.OverlayActive, "Нет подтверждения открытия оверлея от Steam.", 10);
+                if (!SteamOverlayHandoff || window.Topmost) throw new Exception("Игра перекрывает оверлей или не передаёт фокус Steam.");
+                await Task.Delay(100);
+                if (repaint.Background == System.Windows.Media.Brushes.Transparent) throw new Exception("Полнооконная перерисовка Steam не работает.");
+                report.Add("PASS: full-window nonzero-alpha repaint runs while Steam captures input; the game does not reclaim focus or force topmost");
+                report.Add("PASS: actual Steam invite overlay activated and callback 331 received; no invitations sent");
+            }
+            catch (Exception error) { report.Add("FAIL: " + error.GetBaseException().Message); }
+            finally { File.WriteAllLines(System.IO.Path.Combine(Paths.Base, "steam-overlay-test.txt"), report); window.Close(); }
+        }
         void InitializeSteam(bool enable)
         {
-            steam = new SteamBridge(Program.EnableSteam && enable);
-            steam.JoinRequested += lobby => window.Dispatcher.BeginInvoke(new Action(async delegate { if (!disposed) await Guard(() => JoinSteam(lobby)); }));
+            steam = enable && Program.StartupSteam != null ? Program.StartupSteam : new SteamBridge(Program.EnableSteam && enable);
+            if (Object.ReferenceEquals(steam, Program.StartupSteam)) Program.StartupSteam = null;
+            workshop.ClientDownload = (id, progress, cancellation) => steam.DownloadWorkshopItem(id, progress, cancellation);
+            steam.JoinRequested += lobby => window.Dispatcher.BeginInvoke(new Action(async delegate { if (!disposed) await Guard(() => OpenSteamInvite(lobby)); }));
             Text("SteamNetworkStatus", steam.Status);
+            steam.OverlayChanged += active => window.Dispatcher.BeginInvoke(new Action(() =>
+            {
+                if (disposed) return;
+                overlayHandoffUntil = active ? DateTime.MaxValue : DateTime.UtcNow.AddMilliseconds(300);
+                if (active) window.Topmost = false;
+            }));
+            overlayFrames.Tick += delegate
+            {
+                var refresh = C<Border>("SteamOverlayRefresh");
+                if (steam.OverlayNeedsPresent || steam.OverlayActive)
+                {
+                    // Steam requires a FULL window repaint. WPF otherwise presents
+                    // only dirty rectangles and can paint its UI over the overlay.
+                    overlayFrame = !overlayFrame; refresh.Background = overlayFrame ? overlayRefreshA : overlayRefreshB;
+                }
+                else if (refresh.Background != System.Windows.Media.Brushes.Transparent) refresh.Background = System.Windows.Media.Brushes.Transparent;
+            };
+            overlayFrames.Start(); window.Closed += delegate { overlayFrames.Stop(); };
             B("ConnectSteamButton").Click += async delegate
             {
                 if (state != null && state.phase != "lobby") { Toast("Steam можно подключить после завершения раунда."); return; }
@@ -52,7 +106,7 @@ namespace BrokenPhone
         void RenderPlayerName()
         {
             TBox("NameInput").Text = PlayerName; TBox("NameInput").IsReadOnly = steam != null && steam.Available;
-            Text("NameSourceHint", steam != null && steam.Available ? "Имя загружено из твоего профиля Steam. Изменить его можно в Steam." : "Steam не подключён. Для LAN/Radmin можно указать своё имя.");
+            Text("NameSourceHint", steam != null && steam.Available ? "Имя загружено из твоего профиля Steam. Изменить его можно в Steam." : "Steam не подключён. Запусти клиент Steam и подключи его ниже.");
         }
         void SyncSteamName()
         {
@@ -63,33 +117,35 @@ namespace BrokenPhone
         }
         public async Task JoinSteam(ulong lobby)
         {
-            if (!steam.Available) throw new IOException("Запусти Steam и нажми «Подключить Steam» в настройках.");
+            if (!steam.Available) throw new IOException("Запусти Steam и подключи его в настройках игры.");
             if (state != null && state.phase != "lobby") throw new IOException("Дождись завершения текущего раунда.");
             Disconnect(); Exception failure = null;
             try
             {
-                int port = await steam.JoinRoom(lobby); string invitation = steam.Invitation;
-                await Connect("127.0.0.1", port, steam.Code, "", invitation); Page("Lobby"); RefreshConnection();
+                int port = await steam.JoinRoom(lobby);
+                await Connect("127.0.0.1", port, steam.Code, ""); Page("Lobby"); RefreshConnection();
             }
             catch (Exception error) { failure = error; }
             if (failure != null) { await CreateRoom(); throw failure; }
         }
         bool SteamRoute
         {
-            get { var address = C<ComboBox>("NetworkCombo").SelectedItem as NetworkAddress; return steam.Available && steam.LobbyId != 0 && (server == null || address != null && address.Steam); }
+            get { return steam.Available && steam.LobbyId != 0; }
         }
         void InviteFriends()
         {
             if (!SteamRoute) { Invite(); return; }
-            var popup = new Window { Title = "Пригласить друзей Steam", Owner = window, Width = 520, Height = 500, WindowStartupLocation = WindowStartupLocation.CenterOwner, FontFamily = window.FontFamily, ShowInTaskbar = false, Background = Brush("#141720"), Foreground = Brush("#EFF1FA") };
+            overlayHandoffUntil = DateTime.UtcNow.AddSeconds(3);
+            if (steam.OpenOverlay(true)) return;
+            var popup = new Window { Title = "Пригласить друзей Steam", Owner = window, Width = 520, Height = 500, WindowStartupLocation = WindowStartupLocation.CenterOwner, FontFamily = window.FontFamily, ShowInTaskbar = false, Background = Brush("#17151D"), Foreground = Brush("#F2EEF4") };
             popup.Resources.MergedDictionaries.Add(window.Resources);
             Theme.ApplyWindow(popup);
             var panel = new StackPanel { Margin = new Thickness(22) }; popup.Content = new ScrollViewer { Content = panel, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
             panel.Children.Add(new TextBlock { Text = "Друзья в Steam", FontSize = 25, FontWeight = FontWeights.Bold, Margin = new Thickness(0, 0, 0, 12) });
-            panel.Children.Add(new TextBlock { Text = "Друг запускает Broken Phone 0.13, затем принимает приглашение. Нужен запущенный Steam; VPN не требуется.", Foreground = Brush("#AAB4CC"), TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 14) });
-            var copy = SmallButton("Копировать ссылку на комнату", Invite); copy.Margin = new Thickness(0, 0, 0, 14); panel.Children.Add(copy);
+            panel.Children.Add(new TextBlock { Text = "Друг запускает Broken Phone 0.18, затем принимает приглашение. Нужен запущенный Steam; VPN не требуется.", Foreground = Brush("#BDB2CA"), TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 14) });
+            var copy = SmallButton("Копировать код комнаты", Invite); copy.Margin = new Thickness(0, 0, 0, 14); panel.Children.Add(copy);
             var friends = steam.Friends();
-            if (friends.Count == 0) panel.Children.Add(new TextBlock { Text = "Сейчас нет друзей онлайн. Можно отправить скопированную ссылку.", TextWrapping = TextWrapping.Wrap, Foreground = Brush("#AAB4CC") });
+            if (friends.Count == 0) panel.Children.Add(new TextBlock { Text = "Сейчас нет друзей онлайн. Можно отправить скопированную ссылку.", TextWrapping = TextWrapping.Wrap, Foreground = Brush("#BDB2CA") });
             foreach (var friend in friends)
             {
                 var selected = friend; var row = new DockPanel { Margin = new Thickness(0, 5, 0, 5) };

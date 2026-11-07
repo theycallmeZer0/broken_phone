@@ -29,7 +29,7 @@ namespace BrokenPhone
             var buttons = C<StackPanel>("VoiceEffectButtons").Children.OfType<Button>().ToArray();
             for (int i = 0; i < buttons.Length; i++)
             {
-                buttons[i].Background = Brush(i == selectedEffect ? "#EFC75E" : "#30364A"); buttons[i].Foreground = Brush(i == selectedEffect ? "#211B0F" : "#CDD2E5");
+                buttons[i].Background = Brush(i == selectedEffect ? "#C8B8CC" : "#30364A"); buttons[i].Foreground = Brush(i == selectedEffect ? "#2E2130" : "#CDD2E5");
                 buttons[i].IsEnabled = IsTurn && !microphone.Recording && !recordPending;
             }
             C<CheckBox>("NoiseGateCheck").IsEnabled = IsTurn && !microphone.Recording && !recordPending;
@@ -38,7 +38,7 @@ namespace BrokenPhone
         {
             EnsureTurnGroup();
             bool loading = state.phase == "loading", result = state.phase == "result", rendering = state.phase == "rendering";
-            var main = C<Grid>("StudioMain"); main.RowDefinitions[1].Height = new GridLength(result ? 475 : loading ? 515 : 370);
+            var main = C<Grid>("StudioMain"); main.RowDefinitions[1].Height = new GridLength(1, GridUnitType.Star);
             main.RowDefinitions[2].Height = new GridLength(result || loading ? 0 : 54); main.RowDefinitions[3].Height = new GridLength(result || loading ? 0 : 86); main.RowDefinitions[4].Height = new GridLength(result || loading ? 0 : 42); main.RowDefinitions[6].Height = new GridLength(result ? 77 : IsTurn ? 34 : 0);
             C<StackPanel>("OriginalVolumePanel").Visibility = IsTurn ? Visibility.Visible : Visibility.Collapsed;
             C<Slider>("OriginalVolume").IsEnabled = IsTurn && state.pack.lines[StudioTurn].originalAvailable && !microphone.Recording;
@@ -50,7 +50,7 @@ namespace BrokenPhone
             Text("RoleCaption", IsTurn ? (state.pack.lines[StudioTurn].role ?? "ТВОЯ РЕПЛИКА").ToUpperInvariant() : "СЕТЕВАЯ СТУДИЯ");
             Text("LineCaption", IsTurn ? state.pack.lines[StudioTurn].text : "");
             B("ListenButton").Content = result ? state.playbackVersion == 0 ? "▶ Запустить у всех" : "↻ Смотреть ещё раз" : "◀ Предыдущая";
-            B("ListenButton").IsEnabled = result ? IsHost && finalMediaPrepared : IsTurn && StudioTurn > 0 && sourcePrepared && !microphone.Recording && !processingTake && !recordPending;
+            B("ListenButton").IsEnabled = result ? IsHost && finalMediaPrepared && Playback.EveryoneReady(state) : IsTurn && StudioTurn > 0 && sourcePrepared && !microphone.Recording && !processingTake && !recordPending;
             B("OriginalButton").Visibility = result || loading ? Visibility.Collapsed : Visibility.Visible;
             B("OriginalButton").IsEnabled = IsTurn && sourcePrepared && state.pack.lines[StudioTurn].originalAvailable && !microphone.Recording && !processingTake && !recordPending;
             B("OriginalButton").ToolTip = IsTurn && !state.pack.lines[StudioTurn].originalAvailable ? "В этом паке нет исходного звука реплики" : "Прослушать исходную реплику — необязательно";
@@ -59,8 +59,8 @@ namespace BrokenPhone
             B("RecordButton").Content = microphone.Recording ? "■ Стоп" : rawTake != null ? "● Перезапись" : "● Запись";
             B("ReviewButton").Visibility = result || loading ? Visibility.Collapsed : Visibility.Visible; B("ReviewButton").IsEnabled = IsTurn && take != null && !microphone.Recording && !processingTake && !recordPending;
             B("SubmitButton").Content = result ? savingFinal ? "↓ Сохраняем…" : "↓ Скачать MP4" : "Дальше ▶"; B("SubmitButton").IsEnabled = result ? !savingFinal : IsTurn && (take != null || groupEnd > groupStart) && !microphone.Recording && !processingTake && !recordPending;
-            B("ListenButton").ToolTip = IsTurn && StudioTurn > groupStart ? "Открыть предыдущую свою реплику" : "Прослушать реплику предыдущего игрока";
-            B("SubmitButton").ToolTip = IsTurn && StudioTurn < groupEnd ? "Открыть следующую свою реплику" : "Передать весь записанный блок следующему игроку";
+            B("ListenButton").ToolTip = result ? "Общий старт после подготовки видео и звука у всех игроков" : IsTurn && StudioTurn > groupStart ? "Открыть предыдущую свою реплику" : "Прослушать реплику предыдущего игрока";
+            B("SubmitButton").ToolTip = result ? "Сохранить общий дубль на компьютер" : IsTurn && StudioTurn < groupEnd ? "Открыть следующую свою реплику" : "Передать весь записанный блок следующему игроку";
             B("PauseButton").Visibility = result ? Visibility.Visible : Visibility.Collapsed; B("PauseButton").IsEnabled = IsHost && state.playbackVersion > 0 && finalMediaPrepared; B("PauseButton").Content = state.playing ? "Ⅱ Пауза у всех" : "▶ Продолжить";
             C<StackPanel>("RoundActions").Visibility = !loading && (result || IsTurn) ? Visibility.Visible : Visibility.Collapsed;
             C<Slider>("PlaybackSlider").IsEnabled = IsHost && state.playbackVersion > 0 && finalMediaPrepared;
@@ -81,25 +81,26 @@ namespace BrokenPhone
             else if (rendering) { Text("WaitingTitle", "Собираем общий дубль"); Text("WaitingDetail", "Все реплики записаны. Ведущий монтирует видео со всеми голосами."); Text("WaitingPosition", "Просмотр откроется автоматически у всех."); }
             else if (result && (!finalMediaPrepared || state.playbackVersion == 0 || state.playing && playbackAppliedVersion != state.playbackVersion))
             {
-                Text("WaitingTitle", finalMediaPrepared && state.playing ? "Синхронизируем просмотр" : finalMediaPrepared ? "Видео готово к просмотру" : "Готовим общий просмотр");
-                Text("WaitingDetail", IsHost ? "Нажми «Запустить у всех», когда захочешь начать просмотр." : "Просмотром управляет ведущий.");
-                Text("WaitingPosition", finalMediaPrepared ? "MP4 можно скачать отдельно от просмотра." : "После загрузки подключимся к общему просмотру.");
+                bool everyone = Playback.EveryoneReady(state);
+                Text("WaitingTitle", state.playing ? "Начинаем вместе…" : everyone ? "Все готовы к просмотру" : "Готовим общий просмотр");
+                Text("WaitingDetail", state.playing ? "Видео и голоса начнутся по общей команде." : !everyone ? "Ждём загрузки видео и звука у каждого игрока." : IsHost ? "Нажми «Запустить у всех», чтобы начать просмотр." : "Ведущий запускает просмотр для всех.");
+                Text("WaitingPosition", "Готовы: " + state.players.Count(player => state.resultReady.Contains(player.id)) + " / " + state.players.Count + " · MP4 можно скачать отдельно.");
             }
             var dots = C<StackPanel>("LineDots"); dots.Children.Clear();
-            for (int i = 0; i < Math.Min(32, state.order.Length); i++) dots.Children.Add(new System.Windows.Shapes.Ellipse { Width = 5, Height = 5, Margin = new Thickness(0, 0, 6, 0), Fill = Brush(DraftRecorded(i) ? "#99D8B0" : i == StudioTurn ? "#EFC75E" : "#40485F") });
-            var turns = C<StackPanel>("TurnList"); var chainScroll = C<ScrollViewer>("VoiceChainScroll"); double chainOffset = chainScroll.VerticalOffset; turns.Children.Clear();
+            for (int i = 0; i < Math.Min(32, state.order.Length); i++) dots.Children.Add(new System.Windows.Shapes.Ellipse { Width = 5, Height = 5, Margin = new Thickness(0, 0, 6, 0), Fill = Brush(DraftRecorded(i) ? "#C5B4D2" : i == StudioTurn ? "#C8B8CC" : "#40485F") });
+            var turns = C<StackPanel>("TurnList"); turns.Children.Clear();
             if (loading)
-                foreach (var player in state.players) turns.Children.Add(new TextBlock { Text = (player.prepared ? "✓ " : "⇩ ") + player.name + " · " + (player.downloadProgress * 100).ToString("0") + "%\n" + (player.loadStatus ?? "Ожидаем"), TextWrapping = TextWrapping.Wrap, FontSize = 12, Margin = new Thickness(0, 8, 0, 8), Foreground = Brush(player.prepared ? "#99D8B0" : "#AAB4CC") });
+                foreach (var player in state.players) turns.Children.Add(new TextBlock { Text = (player.prepared ? "✓ " : "⇩ ") + player.name + " · " + (player.downloadProgress * 100).ToString("0") + "%\n" + (player.loadStatus ?? "Ожидаем"), TextWrapping = TextWrapping.Wrap, FontSize = 12, Margin = new Thickness(0, 8, 0, 8), Foreground = Brush(player.prepared ? "#C5B4D2" : "#BDB2CA") });
             else
             {
                 for (int i = 0; i < state.order.Length; i++)
                 {
                     var player = state.players.FirstOrDefault(p => p.id == state.order[i]); string label = (i + 1) + ". " + (player == null ? "Игрок" : player.name) + " · " + state.pack.lines[i].role;
-                    turns.Children.Add(new TextBlock { Text = (DraftRecorded(i) ? "✓  " : i == StudioTurn ? "●  " : "○  ") + label, ToolTip = label, TextWrapping = TextWrapping.Wrap, FontSize = 12, Margin = new Thickness(0, 7, 0, 7), FontWeight = i == StudioTurn ? FontWeights.Bold : FontWeights.Normal, Foreground = Brush(DraftRecorded(i) ? "#99D8B0" : "#AAB4CC") });
+                    turns.Children.Add(new TextBlock { Text = (DraftRecorded(i) ? "✓  " : i == StudioTurn ? "●  " : "○  ") + label, ToolTip = label, TextWrapping = TextWrapping.Wrap, FontSize = 14, Margin = new Thickness(0, 6, 0, 6), FontWeight = FontWeights.SemiBold, Foreground = Brush(DraftRecorded(i) ? "#C5B4D2" : "#BDB2CA") });
                 }
             }
-            chainScroll.ScrollToVerticalOffset(chainOffset);
-            C<TextBlock>("RecordingTimer").Foreground = Brush(take != null ? "#99D8B0" : processingTake ? "#BDAAFF" : "#F78781");
+            UpdateChainPage();
+            C<TextBlock>("RecordingTimer").Foreground = Brush(take != null ? "#C5B4D2" : processingTake ? "#CFB3D9" : "#DE8EAA");
             UpdateEffects(); C<TextBlock>("TurnPrompt").Visibility = String.IsNullOrEmpty(C<TextBlock>("RecordingTimer").Text) || result ? Visibility.Visible : Visibility.Collapsed;
         }
         async Task PrepareRound()
@@ -215,12 +216,11 @@ namespace BrokenPhone
             }
             await SubmitTurnGroup();
         }
-        void ControlPlayback(string action, double position) { if (IsHost && state.phase == "result" && finalMediaPrepared) Send(new Message { kind = "playback", text = state.playbackVersion == 0 ? "start" : action, position = position, round = state.round }); }
+        void ControlPlayback(string action, double position) { if (IsHost && state.phase == "result" && finalMediaPrepared && Playback.EveryoneReady(state)) Send(new Message { kind = "playback", text = state.playbackVersion == 0 ? "start" : action, position = position, round = state.round }); }
         void SyncPlayback() { TickFinalPlayback(); }
         void FullScreen()
         {
-            if (!fullScreen) { savedWindowState = window.WindowState; savedWindowStyle = window.WindowStyle; window.WindowStyle = WindowStyle.None; window.WindowState = WindowState.Maximized; fullScreen = true; }
-            else { window.WindowStyle = savedWindowStyle; window.WindowState = savedWindowState; fullScreen = false; }
+            ApplyDisplayMode(fullScreen ? "windowed" : "fullscreen"); Persist();
         }
         void Tick()
         {
@@ -230,7 +230,7 @@ namespace BrokenPhone
             if (microphone.Recording)
             {
                 double elapsed = (DateTime.UtcNow - recordStart).TotalSeconds;
-                C<SignalView>("Signal").UpdateLive(microphone.Waveform, recordDuration, elapsed);
+                C<SignalView>("Signal").UpdateLive(microphone.Waveform, recordDuration, microphone.CapturedSeconds);
                 Text("SignalTime", elapsed.ToString("0.0") + " / " + recordDuration.ToString("0.0") + " с"); Text("RecordingTimer", "● Запись. Нажми R или «Стоп», чтобы закончить раньше."); C<TextBlock>("TurnPrompt").Visibility = Visibility.Collapsed;
                 if (elapsed >= recordDuration) FinishRecording();
             }

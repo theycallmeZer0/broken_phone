@@ -34,11 +34,12 @@ namespace BrokenPhone
                 OpenSettings(); C<ComboBox>("PackSourceCombo").SelectedIndex = 0; TBox("PacksFolderInput").Text = collection; await SaveSettings();
                 var saved = Json.Read<Settings>(File.ReadAllText(SettingsFile));
                 if (!saved.LocalPacks || saved.PacksFolder != collection) throw new Exception("Папка не сохранена из меню настроек.");
-                OpenSettings(); window.UpdateLayout(); TBox("PacksFolderInput").BringIntoView(); await Task.Delay(120); window.UpdateLayout(); SaveScreen("folder-settings-preview.png");
+                OpenSettings(); SettingsSection("Pack"); window.UpdateLayout(); TBox("PacksFolderInput").BringIntoView(); await Task.Delay(120); window.UpdateLayout(); SaveScreen("folder-settings-preview.png");
                 Page("Workshop"); TBox("SearchInput").Text = ""; await Search(); window.UpdateLayout();
                 if (C<WrapPanel>("PackCards").Children.Count != 2 || C<StackPanel>("PackDownloadToolbar").Visibility != Visibility.Collapsed || !C<TextBlock>("WorkshopStatus").Text.Contains("Пропущено: 1")) throw new Exception("Коллекция или повреждённый пак обработаны неправильно.");
                 SaveScreen("folder-packs-preview.png");
-                TBox("SearchInput").Text = "JSON"; await Search(); if (C<WrapPanel>("PackCards").Children.Count != 1) throw new Exception("Не работает поиск по названию из метаданных.");
+                TBox("SearchInput").Text = "JSON";
+                await Until(() => C<WrapPanel>("PackCards").Children.Count == 1 && Object.Equals(((Border)C<WrapPanel>("PackCards").Children[0]).ToolTip, jsonRoot), "Не работает динамический поиск по названию из метаданных.");
                 TBox("SearchInput").Text = ""; await Search();
                 report.Add("PASS: settings persist a Cyrillic folder path; single and nested JSON/INI packs discovered; metadata titles preserved; corrupt pack skipped; local search works without a Steam catalog request");
                 guest.Received += message => { if (message.state != null) guestState = message.state; };

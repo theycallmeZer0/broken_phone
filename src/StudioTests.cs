@@ -38,7 +38,7 @@ namespace BrokenPhone
                 otherWindow.ShowInTaskbar = false; otherWindow.WindowStartupLocation = WindowStartupLocation.Manual; otherWindow.Left = -10000;
                 other = new GameWindow(otherWindow, false); other.settings.Name = "Сетевой друг"; other.settings.Volume = 0; other.C<Slider>("VolumeSlider").Value = 0; other.selectedEffect = 0; other.C<CheckBox>("NoiseGateCheck").IsChecked = false;
                 otherWindow.Show();
-                if (steamTransport) { if (!steam.Available || !SteamRoute) throw new Exception("Лобби Steam не подготовилось в интерфейсе."); VerifySteamFriendsDialog(); report.Add("PASS: Steam friends dialog opens in dark theme without sending any invitations"); SaveScreen("steam-lobby-preview.png"); int port = steam.OpenTunnel(steam.UserId); await other.Connect("127.0.0.1", port, server.Code, "", steam.Invitation); }
+                if (steamTransport) { if (!steam.Available || !SteamRoute) throw new Exception("Лобби Steam не подготовилось в интерфейсе."); if (!steam.OverlayEnabled) VerifySteamFriendsDialog(); report.Add("PASS: Steam invite route available; native overlay=" + steam.OverlayEnabled + "; fallback tested when needed; no invitations sent"); SaveScreen("steam-lobby-preview.png"); int port = steam.OpenTunnel(steam.UserId); await other.Connect("127.0.0.1", port, server.Code, ""); }
                 else await other.Connect("127.0.0.1", server.Port, server.Code, "");
                 await Until(() => state.players.Count == 2 && other.Me != null, "Второе игровое окно не подключилось.");
                 B("ReadyButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); other.B("ReadyButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
@@ -54,6 +54,7 @@ namespace BrokenPhone
                 for (int i = 0; i < 4; i++)
                 {
                     int turn = i; var active = i % 2 == 0 ? this : other;
+                    if (i == 3) { other.preparingFinal = true; other.finalLoadingRound = state.round; }
                     await Until(() => active.IsTurn && active.state.turn == turn && active.sourcePrepared, "Не наступил ход " + i);
                     if (!active.B("RecordButton").IsEnabled) throw new Exception("Запись недоступна без прослушивания: " + i);
                     await active.SetTake(SelfTests.ToneWave(1.4, 330 + i * 110));
@@ -66,8 +67,16 @@ namespace BrokenPhone
                     await Until(() => state.turn > turn, "Дубль не отправлен кнопкой «Дальше».");
                 }
                 report.Add("PASS: all turns submitted using game controls without listening; real full-width waveform drawn; no spectrogram or scene hint");
-                await Until(() => state.phase == "result" && other.state.phase == "result" && finalMediaPrepared && other.finalMediaPrepared, "Финальное видео и звуковые дорожки не подготовились.");
+                await Until(() => state.phase == "result" && other.state.phase == "result" && finalMediaPrepared, "Финальное видео не подготовилось у хоста.");
+                if (other.finalMediaPrepared || B("ListenButton").IsEnabled) throw new Exception("Хост может начать просмотр до подготовки гостя.");
+                Send(new Message { kind = "playback", text = "start", round = state.round });
+                await Task.Delay(250);
+                if (state.playing || state.playbackVersion != 0 || C<Border>("WaitingOverlay").Visibility != Visibility.Visible) throw new Exception("Видео появилось у хоста до готовности гостя.");
+                other.preparingFinal = false; await other.PrepareRound();
+                await Until(() => other.finalMediaPrepared && B("ListenButton").IsEnabled && Playback.EveryoneReady(other.state), "Общий просмотр не разблокировался после подготовки гостя.");
+                report.Add("PASS: delayed guest preparation keeps both viewers covered; early network start is rejected; start unlocks only after every decoder and audio mixer is ready");
                 var hostVideo = C<MediaElement>("Video"); var guestVideo = other.C<MediaElement>("Video");
+                if (finalMixer.OutputDeviceId != OutputAudio.Resolve(settings.OutputDevice) || other.finalMixer.OutputDeviceId != OutputAudio.Resolve(other.settings.OutputDevice)) throw new Exception("Финальный просмотр игнорирует выбранное устройство вывода.");
                 if (checkSync && (hostVideo.Source.LocalPath != sourceFile || guestVideo.Source.LocalPath != other.sourceFile || finalVideoTask != null || other.finalVideoTask != null)) throw new Exception("SYNC: финальный просмотр повторно загружает полный MP4 вместо уже подготовленного локального видео.");
                 if (checkSync) report.Add("PASS: final viewing reuses the decoded local pack video; neither viewer automatically requests a full rendered MP4");
                 await Task.Delay(200); if (state.playbackVersion != 0 || state.playing || hostVideo.Position.TotalSeconds > .1) throw new Exception("Финальный просмотр запущен автоматически.");
@@ -75,18 +84,21 @@ namespace BrokenPhone
                 other.C<Slider>("VolumeSlider").Value = 1; other.C<Slider>("ResultVoicesVolume").Value = .9; other.C<Slider>("ResultMovieVolume").Value = .1;
                 if (Math.Abs(finalVoiceGain - .25) > .001 || Math.Abs(finalMovieGain - .8) > .001 || Math.Abs(other.finalVoiceGain - .9) > .001 || Math.Abs(other.finalMovieGain - .1) > .001 || hostVideo.Volume != 0 || guestVideo.Volume != 0) throw new Exception("Громкость фона и голосов не разделена или меняется у других участников.");
                 C<Slider>("VolumeSlider").Value = 0; other.C<Slider>("VolumeSlider").Value = 0;
-                other.ResetFinalPlayer(); other.RenderRound();
                 if (!B("SubmitButton").IsEnabled || !other.B("SubmitButton").IsEnabled) throw new Exception("Скачивание MP4 доступно не всем или зависит от готовности плеера.");
                 string savedHost = System.IO.Path.Combine(Paths.Cache, "host-export-" + Guid.NewGuid().ToString("N") + ".mp4"), savedGuest = System.IO.Path.Combine(Paths.Cache, "guest-export-" + Guid.NewGuid().ToString("N") + ".mp4");
                 try { await SaveFinalVideo(savedHost); await other.SaveFinalVideo(savedGuest); if (!File.ReadAllBytes(savedHost).SequenceEqual(File.ReadAllBytes(savedGuest))) throw new Exception("Участники сохраняют разные MP4."); }
                 finally { if (File.Exists(savedHost)) File.Delete(savedHost); if (File.Exists(savedGuest)) File.Delete(savedGuest); }
                 B("ListenButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); await Until(() => state.playbackVersion > 0 && hostVideo.Position.TotalSeconds > .4, "Ведущий не может запустить просмотр вручную.");
+                if (other.playbackAppliedVersion != state.playbackVersion || Math.Abs(hostVideo.Position.TotalSeconds - guestVideo.Position.TotalSeconds) > .15) throw new Exception("Начало просмотра не совпадает у игроков.");
+                if (Math.Abs(playbackStartedAt - other.playbackStartedAt) > 80) throw new Exception("Видео открылось у игроков с задержкой: " + Math.Abs(playbackStartedAt - other.playbackStartedAt) + " мс.");
+                report.Add("PASS: both video overlays reveal on the shared start; measured start difference=" + Math.Abs(playbackStartedAt - other.playbackStartedAt) + " ms");
+                other.ResetFinalPlayer(); other.RenderRound();
                 if (other.finalMediaPrepared) throw new Exception("Тест не имитирует позднюю подготовку гостя.");
                 await other.PrepareRound(); await Until(() => other.finalMediaPrepared && guestVideo.Position.TotalSeconds > .4, "Гость не подключился к уже идущему просмотру.");
                 await Until(() => Math.Abs(hostVideo.Position.TotalSeconds - guestVideo.Position.TotalSeconds) < .45, "Поздний участник не догнал общий просмотр.", 8);
                 if (other.B("PauseButton").IsEnabled || other.C<Slider>("PlaybackSlider").IsEnabled) throw new Exception("Гость управляет общим просмотром.");
                 SaveScreen("screening-host-preview.png"); other.SaveScreen("screening-guest-preview.png");
-                report.Add("PASS: host starts manually without waiting for guest player; late decoder joins the current shared position; positions within 450 ms");
+                report.Add("PASS: a decoder reopened during an active screening recovers the shared position; positions within 450 ms");
                 if (checkSync)
                 {
                     await Until(() => playbackAppliedVersion == state.playbackVersion && other.playbackAppliedVersion == other.state.playbackVersion, "Поздний клиент не завершил подготовку кадра.");

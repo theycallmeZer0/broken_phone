@@ -20,10 +20,7 @@ namespace BrokenPhone
     public sealed class WorkshopService
     {
         public const string AppId = "5020310";
-        public string Account = "anonymous";
-        static readonly SemaphoreSlim commandGate = new SemaphoreSlim(1, 1);
-        static readonly SemaphoreSlim installGate = new SemaphoreSlim(1, 1);
-        public string SteamCmd { get { return Path.Combine(Paths.Steam, "steamcmd.exe"); } }
+        public Func<string, Action<PackProgress>, CancellationToken, Task<string>> ClientDownload;
         sealed class Client : WebClient
         {
             protected override WebRequest GetWebRequest(Uri uri) { var request = base.GetWebRequest(uri); request.Timeout = 25000; return request; }
@@ -137,45 +134,13 @@ namespace BrokenPhone
             string path = Path.Combine(Paths.Packs, id);
             return File.Exists(Path.Combine(path, "pack.json")) ? PackLibrary.Load(path, id, cancellation) : null;
         }
-        public async Task EnsureDownloader(Action<string> status, CancellationToken cancellation = default(CancellationToken))
-        {
-            await installGate.WaitAsync(cancellation).ConfigureAwait(false);
-            try
-            {
-                if (File.Exists(SteamCmd)) return;
-                status("Устанавливаем официальный загрузчик Steam…"); Directory.CreateDirectory(Paths.Steam);
-                string installer = Path.Combine(Paths.Cache, "steamcmd.zip");
-                ServicePointManager.SecurityProtocol |= SecurityProtocolType.Tls12;
-                await Transfers.Download("https://steamcdn-a.akamaihd.net/client/installer/steamcmd.zip", installer, cancellation, null).ConfigureAwait(false);
-                string stage = Path.Combine(Paths.Cache, "steam-install-" + Guid.NewGuid().ToString("N")); Directory.CreateDirectory(stage);
-                try
-                {
-                    await Task.Run(() => PackLibrary.Extract(installer, stage, cancellation), cancellation).ConfigureAwait(false);
-                    cancellation.ThrowIfCancellationRequested();
-                    foreach (string file in Directory.GetFiles(stage)) File.Copy(file, Path.Combine(Paths.Steam, Path.GetFileName(file)), true);
-                }
-                finally { if (Directory.Exists(stage)) Directory.Delete(stage, true); }
-                if (!File.Exists(SteamCmd)) throw new IOException("В архиве Steam нет загрузчика.");
-            }
-            finally { installGate.Release(); }
-        }
-        public async Task Login(Action<string> status)
-        {
-            ValidateAccount(); if (String.Equals(Account, "anonymous", StringComparison.OrdinalIgnoreCase)) throw new InvalidOperationException("Сначала укажите имя своего аккаунта Steam."); await EnsureDownloader(status);
-            Process.Start(new ProcessStartInfo(SteamCmd, "+login " + Account) { WorkingDirectory = Paths.Steam, UseShellExecute = true });
-            status("Войдите в официальном окне Steam, затем введите quit. Пароль и Steam Guard вводятся только в этом окне.");
-        }
-        void ValidateAccount()
-        {
-            if (!Regex.IsMatch(Account ?? "", @"^[A-Za-z0-9_@.\-]{1,64}$")) throw new InvalidDataException("Укажите имя аккаунта Steam в настройках.");
-        }
         public Task<Pack> Download(WorkshopItem item, Action<string> status, CancellationToken cancellation = default(CancellationToken)) { return DownloadProgress(item, p => status(p.Label), cancellation); }
         public async Task<Pack> DownloadProgress(WorkshopItem item, Action<PackProgress> progress, CancellationToken cancellation = default(CancellationToken))
         {
             Action<string> status = text => progress(PackProgress.Step(text));
             cancellation.ThrowIfCancellationRequested();
             var owned = await Task.Run(() => FindOwned(item.Id, cancellation), cancellation).ConfigureAwait(false);
-            if (owned != null) { status("Пак уже в папке этой игры."); return owned; }
+            if (owned != null) { status("Пак уже загружен."); return owned; }
             status("Получаем данные пака из Steam…"); var details = await DetailsAsync(item.Id, cancellation).ConfigureAwait(false);
             Pack loaded;
             if (!String.IsNullOrEmpty(details.FileUrl))
@@ -188,25 +153,14 @@ namespace BrokenPhone
             }
             else
             {
-                ValidateAccount(); await EnsureDownloader(status, cancellation).ConfigureAwait(false); status("Скачиваем пак из Steam в папку игры…");
-                string arguments = "+login " + Account + " +workshop_download_item " + AppId + " " + item.Id + " validate +quit";
-                status("Ожидаем загрузчик Steam…"); await commandGate.WaitAsync(cancellation).ConfigureAwait(false);
-                try
-                {
-                    Action<string> output = text => { var parsed = ParseProgress(text); if (parsed != null) progress(parsed); };
-                    string log = await Task.Run(() => Transfers.Process(SteamCmd, arguments, Paths.Steam, 600000, cancellation, true, output), cancellation).ConfigureAwait(false);
-                    if (log.IndexOf("Update complete, launching", StringComparison.OrdinalIgnoreCase) >= 0 && log.IndexOf("Success. Downloaded item", StringComparison.OrdinalIgnoreCase) < 0)
-                        await Task.Run(() => Transfers.Process(SteamCmd, arguments, Paths.Steam, 600000, cancellation, true, output), cancellation).ConfigureAwait(false);
-                }
-                finally { commandGate.Release(); }
-                string downloaded = Path.Combine(Paths.Steam, "steamapps", "workshop", "content", AppId, item.Id);
-                if (!Directory.Exists(downloaded)) throw new IOException("Steam не создал файлы пака. Проверьте вход в настройках.");
+                if (ClientDownload == null) throw new IOException("Для загрузки этого пака подключи открытый клиент Steam в настройках игры. Отдельный вход в загрузчик не требуется.");
+                string downloaded = await ClientDownload(item.Id, progress, cancellation).ConfigureAwait(false);
                 status("Подготавливаем видео и реплики…"); loaded = await Task.Run(() => PackLibrary.Import(downloaded, item.Id, cancellation), cancellation).ConfigureAwait(false);
             }
             cancellation.ThrowIfCancellationRequested();
             loaded.preview = details.Preview;
             string metadata = Path.Combine(loaded.root, "pack.json"); var data = Json.Read<Dictionary<string, object>>(File.ReadAllText(metadata)); data["preview"] = loaded.preview;
-            File.WriteAllText(metadata, Json.Write(data)); progress(new PackProgress { Stage = "Пак сохранён в Packs/" + item.Id, Fraction = 1 }); return loaded;
+            File.WriteAllText(metadata, Json.Write(data)); progress(new PackProgress { Stage = "Пак готов", Fraction = 1 }); return loaded;
         }
     }
 }

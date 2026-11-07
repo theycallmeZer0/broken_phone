@@ -10,6 +10,8 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Media;
+using System.Windows.Media.Imaging;
 
 namespace BrokenPhone
 {
@@ -92,6 +94,36 @@ namespace BrokenPhone
 
     public sealed partial class GameWindow
     {
+        void CheckPackPreviewFits()
+        {
+            window.UpdateLayout(); var preview = C<PackCover>("PackPreview"); var artwork = C<Border>("LobbyPackArtwork");
+            Rect bounds = preview.TransformToVisual(artwork).TransformBounds(new Rect(preview.RenderSize));
+            if (bounds.Left < -1 || bounds.Top < -1 || bounds.Right > artwork.ActualWidth + 1 || bounds.Bottom > artwork.ActualHeight + 1)
+                throw new Exception("Обложка выходит за скруглённый баннер: " + bounds);
+            double rightGap = artwork.ActualWidth - bounds.Right;
+            if (Math.Abs(rightGap - bounds.Top) > 1 || Math.Abs(rightGap - (artwork.ActualHeight - bounds.Bottom)) > 1)
+                throw new Exception("Отступ справа отличается от верхнего или нижнего отступа.");
+            if (Math.Abs(preview.ActualWidth / preview.ActualHeight - 16.0 / 9) > .01)
+                throw new Exception("Формат превью в лобби отличается от 16:9: " + preview.ActualWidth + "×" + preview.ActualHeight);
+            Rect content = preview.ContentBounds;
+            if (Math.Abs(content.Left) > .1 || Math.Abs(content.Top) > .1 || Math.Abs(content.Width - preview.ActualWidth) > .1 || Math.Abs(content.Height - preview.ActualHeight) > .1)
+                throw new Exception("Обложка не растянута на всю рамку.");
+            Rect title = C<TextBlock>("PackTitle").TransformToVisual(artwork).TransformBounds(new Rect(C<TextBlock>("PackTitle").RenderSize));
+            if (bounds.IntersectsWith(title)) throw new Exception("Название перекрывает обложку.");
+        }
+        void CheckCoverPixels(PackCover preview, Size sourceSize)
+        {
+            var root = C<Grid>("Root");
+            var bitmap = new RenderTargetBitmap((int)Math.Ceiling(root.ActualWidth), (int)Math.Ceiling(root.ActualHeight), 96, 96, PixelFormats.Pbgra32); bitmap.Render(root);
+            var points = new[] { new Point(.04, .5), new Point(.5, .04), new Point(.96, .5), new Point(.5, .96) };
+            var colors = new[] { Colors.Red, Colors.Lime, Colors.Blue, Colors.Magenta };
+            for (int i = 0; i < points.Length; i++)
+            {
+                Point position = preview.TransformToAncestor(root).Transform(new Point(points[i].X * preview.ActualWidth, points[i].Y * preview.ActualHeight));
+                var pixel = new byte[4]; bitmap.CopyPixels(new Int32Rect((int)position.X, (int)position.Y, 1, 1), pixel, 4, 0);
+                if (Math.Abs(pixel[0] - colors[i].B) > 8 || Math.Abs(pixel[1] - colors[i].G) > 8 || Math.Abs(pixel[2] - colors[i].R) > 8) throw new Exception("Край обложки обрезан при смене пропорций: " + sourceSize + ", сторона=" + i + ", BGRA=" + String.Join(",", pixel));
+            }
+        }
         public async Task PackDownloadsSmoke()
         {
             var report = new List<string>(); string archive = SelfTests.DemoArchive(), selected = null; var guest = new RoomClient(); RoomState guestState = null;
@@ -117,8 +149,34 @@ namespace BrokenPhone
                 report.Add("PASS: batch selection, two loading cards, disabled busy buttons, live progress, individual cancel and no automatic lobby selection");
                 packControls["9900202"].Download.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
                 await Until(() => state.pack.workshopId == "9900202" && guestState != null && guestState.pack.workshopId == "9900202", "Выбор пака не передался гостю.");
-                if (String.IsNullOrEmpty(guestState.pack.thumbnail) || guestState.pack.DisplayLines != 4 || guestState.pack.DisplayRoles != 2 || C<System.Windows.Controls.Image>("PackPreview").Source == null) throw new Exception("Гость не получил обложку, реплики или роли.");
-                SaveScreen("selected-pack-preview.png"); report.Add("PASS: explicit lobby selection immediately broadcasts pack preview, line and role counts to another TCP client");
+                if (String.IsNullOrEmpty(guestState.pack.thumbnail) || guestState.pack.DisplayLines != 4 || guestState.pack.DisplayRoles != 2 || C<PackCover>("PackPreview").Source == null) throw new Exception("Гость не получил обложку, реплики или роли.");
+                CheckPackPreviewFits(); SaveScreen("selected-pack-preview.png");
+                var preview = C<PackCover>("PackPreview"); var source = preview.Source; var root = C<Grid>("Root"); double width = root.Width;
+                try
+                {
+                    foreach (int layoutWidth in new[] { 1440, 1600, 2160 })
+                    foreach (Size size in new[] { new Size(1920, 1080), new Size(900, 900), new Size(720, 1280), new Size(32, 24) })
+                    {
+                        root.Width = layoutWidth;
+                        var drawing = new DrawingGroup();
+                        using (var dc = drawing.Open())
+                        {
+                            dc.DrawRectangle(Brushes.White, null, new Rect(size));
+                            dc.DrawRectangle(Brushes.Red, null, new Rect(0, 0, size.Width * .08, size.Height));
+                            dc.DrawRectangle(Brushes.Lime, null, new Rect(0, 0, size.Width, size.Height * .08));
+                            dc.DrawRectangle(Brushes.Blue, null, new Rect(size.Width * .92, 0, size.Width * .08, size.Height));
+                            dc.DrawRectangle(Brushes.Magenta, null, new Rect(0, size.Height * .92, size.Width, size.Height * .08));
+                        }
+                        preview.Source = new DrawingImage(drawing); CheckPackPreviewFits(); await Task.Delay(25); CheckCoverPixels(preview, size);
+                    }
+                }
+                finally { root.Width = width; preview.Source = source; window.UpdateLayout(); }
+                var backdrop = preview.Backdrop;
+                for (int i = 0; i < 6; i++) { RenderLobby(); window.UpdateLayout(); await Task.Delay(20); if (!Object.ReferenceEquals(preview.Backdrop, backdrop)) throw new Exception("Фон пересоздаётся при неизменной обложке."); }
+                if (backdrop == null || !backdrop.IsFrozen || C<Image>("PackBackdrop").Effect != null) throw new Exception("Под превью осталось живое размытие вместо статичного фона.");
+                report.Add("PASS: explicit lobby selection immediately broadcasts pack preview, line and role counts to another TCP client");
+                report.Add("PASS: landscape, square, portrait and tiny covers fill the entire 16:9 frame at three interface widths; all four source edges stay visible; equal top/bottom/right insets and no text overlap");
+                report.Add("PASS: softened backdrop is frozen, has no live blur shader, and is reused across unchanged lobby updates");
             }
             catch (Exception e) { report.Add("FAIL: " + e); }
             finally

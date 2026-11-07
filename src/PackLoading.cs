@@ -15,6 +15,21 @@ namespace BrokenPhone
         static readonly object hashGate = new object();
         static readonly Dictionary<string, string> hashes = new Dictionary<string, string>();
         static readonly SemaphoreSlim installGate = new SemaphoreSlim(1, 1);
+        internal static void MovePreparedDirectory(string stage, string target, CancellationToken token)
+        {
+            for (int attempt = 0; ; attempt++)
+            {
+                token.ThrowIfCancellationRequested();
+                try { Directory.Move(stage, target); return; }
+                catch (IOException error)
+                {
+                    int code = error.HResult & 0xffff;
+                    if (attempt >= 19 || code != 5 && code != 32 && code != 33) throw;
+                }
+                // Windows can briefly keep a new folder or file open after a write.
+                if (token.WaitHandle.WaitOne(100)) token.ThrowIfCancellationRequested();
+            }
+        }
         public static string FileHash(string file, CancellationToken token = default(CancellationToken))
         {
             var info = new FileInfo(file); string key = info.FullName + "|" + info.Length + "|" + info.LastWriteTimeUtc.Ticks;
@@ -58,7 +73,7 @@ namespace BrokenPhone
         {
             PackSources.Validate(remote);
             if (Key(remote) != remote.contentKey || !Regex.IsMatch(remote.contentKey ?? "", @"^[a-f0-9]{64}$") || !Regex.IsMatch(remote.videoHash ?? "", @"^[a-f0-9]{64}$") || remote.videoBytes <= 0 || remote.videoBytes + remote.backgroundBytes > 2L * 1024 * 1024 * 1024) throw new InvalidDataException("Некорректные данные выбранного пака.");
-            progress(PackProgress.Step("Проверяем локальные файлы…"));
+            progress(PackProgress.Step("Подготавливаем пак…"));
             var cached = useCache ? await Task.Run(() => Cached(remote, token), token).ConfigureAwait(false) : null;
             if (cached != null) { progress(new PackProgress { Stage = "Пак уже загружен", Fraction = 1 }); return cached; }
             if (PackSources.Native(remote)) return await LocalPackSync.Prepare(remote, sourceFolder, asset, progress, token).ConfigureAwait(false);
@@ -80,7 +95,7 @@ namespace BrokenPhone
                 if (remote.backgroundBytes > 0) File.Copy(background, Path.Combine(stage, "background.audio"));
                 File.WriteAllText(Path.Combine(stage, "pack.json"), Json.Write(new { internal_test = remote.isTestPack, title = remote.title, description = remote.description, language = remote.language, video = "video.mp4", background = remote.backgroundBytes > 0 ? "background.audio" : "", original = "", lines = remote.lines, line_count = remote.DisplayLines, role_count = remote.DisplayRoles, preview = remote.preview, thumbnail = remote.thumbnail, generated_timing = remote.generatedTiming, merged_timing = remote.mergedTiming }));
                 File.WriteAllText(Path.Combine(stage, ".source"), remote.workshopId ?? ""); token.ThrowIfCancellationRequested();
-                if (Directory.Exists(target)) Directory.Delete(target, true); Directory.Move(stage, target);
+                if (Directory.Exists(target)) Directory.Delete(target, true); MovePreparedDirectory(stage, target, token);
                 var result = PackLibrary.Load(target, remote.workshopId, token); if (result.contentKey != remote.contentKey) throw new InvalidDataException("Метаданные пака не совпали.");
                 progress(new PackProgress { Stage = "Пак загружен", Fraction = 1 }); return result;
             }

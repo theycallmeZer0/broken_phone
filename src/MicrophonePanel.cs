@@ -10,7 +10,7 @@ namespace BrokenPhone
     {
         const double MicCheckSeconds = 5;
         readonly MicrophoneRecorder checkMicrophone = new MicrophoneRecorder();
-        readonly MediaPlayer checkPlayback = new MediaPlayer();
+        readonly OutputPlayer checkPlayback = new OutputPlayer();
         float[] checkWave = new float[0];
         byte[] checkSample;
         string checkFile;
@@ -30,14 +30,14 @@ namespace BrokenPhone
                 ClearMicCheck(); checkDevice = device;
             };
             checkPlayback.MediaEnded += delegate { if (checkPlaying) { StopMicPlayback(); Text("MicStatus", "Прослушивание закончено. Можно повторить или записать ещё раз."); } };
-            checkPlayback.MediaFailed += delegate { StopMicPlayback(); Text("MicStatus", "Запись не открылась. Запиши пробу ещё раз."); };
+            checkPlayback.MediaFailed += delegate(object sender, OutputFailure error) { StopMicPlayback(); Text("MicStatus", error.Error.Message); };
             UpdateMicControls();
         }
         void UpdateMicControls()
         {
             bool recording = checkMicrophone.Recording;
             B("MicTestButton").Content = recording ? "■ Остановить" : checkSample == null ? "● Записать пробу" : "● Записать ещё раз";
-            B("MicTestButton").Background = Brush(recording ? "#F78781" : "#99D8B0");
+            B("MicTestButton").Background = Brush(recording ? "#DE8EAA" : "#C5B4D2");
             B("MicReplayButton").Content = checkPlaying || checkOpening ? "■ Стоп" : "▶ Прослушать";
             B("MicReplayButton").IsEnabled = checkSample != null && !recording;
             B("MicClearButton").IsEnabled = checkSample != null || recording;
@@ -47,6 +47,7 @@ namespace BrokenPhone
         void StartMicCheck()
         {
             if (microphone.Recording) return;
+            StopHeadphoneTest();
             ClearMicCheck();
             try
             {
@@ -76,6 +77,7 @@ namespace BrokenPhone
         void ListenMicCheck()
         {
             if (checkSample == null || checkMicrophone.Recording) return;
+            StopHeadphoneTest();
             StopMicPlayback(); int revision = checkPlaybackRevision; checkOpening = true;
             checkPlayback.Volume = C<Slider>("VolumeSlider").Value; UpdateMicControls();
             EventHandler opened = null;
@@ -93,7 +95,7 @@ namespace BrokenPhone
         }
         void StopMicrophonePanel()
         {
-            if (checkMicrophone.Recording) FinishMicCheck(); StopMicPlayback();
+            if (checkMicrophone.Recording) FinishMicCheck(); StopMicPlayback(); StopHeadphoneTest();
         }
         void DeleteMicFile()
         {
@@ -115,9 +117,10 @@ namespace BrokenPhone
         }
         void TickMicrophonePanel()
         {
+            UpdateHeadphoneTest();
             if (checkMicrophone.Recording)
             {
-                double elapsed = (DateTime.UtcNow - checkStart).TotalSeconds; RenderMicCapture(checkMicrophone.Waveform, elapsed, checkMicrophone.Level);
+                double elapsed = (DateTime.UtcNow - checkStart).TotalSeconds; RenderMicCapture(checkMicrophone.Waveform, checkMicrophone.CapturedSeconds, checkMicrophone.Level);
                 if (elapsed >= MicCheckSeconds) FinishMicCheck();
             }
             else if (checkPlaying)

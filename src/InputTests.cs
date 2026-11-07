@@ -14,10 +14,10 @@ namespace BrokenPhone
             var report = new List<string>();
             try
             {
-                foreach (string name in new[] { "ChatInput", "SearchInput", "NameInput", "PacksFolderInput", "SteamAccountInput" })
+                foreach (string name in new[] { "ChatInput", "SearchInput", "NameInput", "PacksFolderInput" })
                 {
-                    if (name == "SearchInput") Page("Workshop"); else if (name == "NameInput" || name == "SteamAccountInput" || name == "PacksFolderInput") OpenSettings(); else Page("Lobby");
-                    if (name == "SteamAccountInput") C<ComboBox>("PackSourceCombo").SelectedIndex = 1;
+                    if (name == "SearchInput") Page("Workshop"); else if (name == "NameInput" || name == "PacksFolderInput") OpenSettings(); else Page("Lobby");
+                    if (name == "PacksFolderInput") { SettingsSection("Pack"); C<ComboBox>("PackSourceCombo").SelectedIndex = 0; }
                     window.UpdateLayout(); var box = TBox(name); box.Text = "Проверка: АБВГД, ёжик 123"; box.BringIntoView(); box.Focus(); box.CaretIndex = box.Text.Length; window.UpdateLayout(); await Task.Delay(100);
                     var host = box.Template.FindName("PART_ContentHost", box) as ScrollViewer; Rect letter = box.GetRectFromCharacterIndex(0);
                     double height = box.FontSize * box.FontFamily.LineSpacing;
