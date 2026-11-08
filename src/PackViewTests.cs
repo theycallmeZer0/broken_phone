@@ -12,10 +12,10 @@ namespace BrokenPhone
     {
         public async Task PackViewsSmoke()
         {
-            var report = new List<string>(); bool originalLocal = settings.LocalPacks;
+            var report = new List<string>();
             try
             {
-                await Until(() => Me != null, "Нет лобби."); settings.LocalPacks = false; showMyPacks = false;
+                await Until(() => Me != null, "Нет лобби."); showMyPacks = false;
                 Page("Workshop"); RenderPackSource(); C<ComboBox>("LanguageCombo").SelectedIndex = 0; TBox("SearchInput").Text = "";
                 B("MyPacksFolderButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
                 await Until(() => showMyPacks && !refreshMyPacks && C<TextBlock>("WorkshopTitle").Text == "Мои паки", "Мои паки не открылись внутри игры.");
@@ -32,7 +32,7 @@ namespace BrokenPhone
                 report.Add("PASS: switching back loads actual Steam Workshop metadata; installed items remain in the catalog and receive a downloaded marker when present locally");
             }
             catch (Exception error) { report.Add("FAIL: " + error); }
-            finally { settings.LocalPacks = originalLocal; File.WriteAllLines(Path.Combine(Paths.Base, "pack-views-ui-test.txt"), report); window.Close(); }
+            finally { File.WriteAllLines(Path.Combine(Paths.Base, "pack-views-ui-test.txt"), report); window.Close(); }
         }
     }
 }

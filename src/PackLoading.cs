@@ -42,10 +42,19 @@ namespace BrokenPhone
             }
         }
         static string Hex(byte[] bytes) { return BitConverter.ToString(bytes).Replace("-", "").ToLowerInvariant(); }
+        public static Task<Pack> PrepareAssisted(Pack remote, Func<WorkshopItem, Action<PackProgress>, CancellationToken, Task<Pack>> steamDownload, Func<string, string, Action<long, long>, CancellationToken, Task<string>> asset, Action<PackProgress> progress, CancellationToken token, string sourceFolder, Func<CancellationToken, Task> waitForHelpers)
+        {
+            // Peer discovery/downloads must not compete with a working Steam download.
+            // The asset loader enters the swarm only after PrepareSelected falls back.
+            return PrepareSelected(remote, steamDownload, asset, progress, token, sourceFolder);
+        }
         public static async Task<Pack> PrepareSelected(Pack remote, Func<WorkshopItem, Action<PackProgress>, CancellationToken, Task<Pack>> steamDownload, Func<string, string, Action<long, long>, CancellationToken, Task<string>> asset, Action<PackProgress> progress, CancellationToken token, string sourceFolder = null)
         {
+            token.ThrowIfCancellationRequested(); ValidateDescriptor(remote);
             var cached = await Task.Run(() => Cached(remote, token), token).ConfigureAwait(false);
             if (cached != null) return cached;
+            var local = await PrepareLocal(remote, progress, token, sourceFolder).ConfigureAwait(false);
+            if (local != null) return local;
             if (steamDownload != null && Regex.IsMatch(remote.workshopId ?? "", @"^\d{6,20}$"))
             {
                 try
@@ -55,12 +64,38 @@ namespace BrokenPhone
                     token.ThrowIfCancellationRequested();
                     if (downloaded.contentKey == remote.contentKey) return downloaded;
                     sourceFolder = downloaded.root;
-                    progress(PackProgress.Step("Версия в Steam отличается. Получаем выбранную версию у ведущего…"));
+                    progress(PackProgress.Step("Версия в Steam отличается. Получаем выбранную версию у участников…"));
                 }
                 catch (OperationCanceledException) { throw; }
-                catch (Exception) { token.ThrowIfCancellationRequested(); progress(PackProgress.Step("Steam недоступен. Получаем пак у ведущего…")); }
+                catch (Exception) { token.ThrowIfCancellationRequested(); progress(PackProgress.Step("Steam недоступен. Получаем пак у участников…")); }
             }
             return await Prepare(remote, asset, progress, token, true, sourceFolder).ConfigureAwait(false);
+        }
+        sealed class MissingLocalAssetException : IOException { }
+        static async Task<Pack> PrepareLocal(Pack remote, Action<PackProgress> progress, CancellationToken token, string folder)
+        {
+            bool complete = await Task.Run(() =>
+            {
+                var folders = LocalPackSync.Folders(remote, folder, token);
+                if (!PackSources.Native(remote))
+                    return LocalPackSync.Media(folders, remote.videoHash, remote.videoBytes, token) != null
+                        && (remote.backgroundBytes == 0 || LocalPackSync.Media(folders, remote.backgroundHash, remote.backgroundBytes, token) != null);
+                foreach (var file in remote.sourceFiles)
+                {
+                    bool found = false;
+                    foreach (string candidate in folders)
+                    {
+                        token.ThrowIfCancellationRequested();
+                        try { if (PackSources.Matches(PackSources.SafeFile(candidate, file.path), file, token)) { found = true; break; } }
+                        catch (UnauthorizedAccessException) { } catch (IOException) { }
+                    }
+                    if (!found) return false;
+                }
+                return true;
+            }, token).ConfigureAwait(false);
+            if (!complete) return null;
+            try { return await Prepare(remote, (asset, extension, report, cancellation) => { throw new MissingLocalAssetException(); }, progress, token, true, folder).ConfigureAwait(false); }
+            catch (MissingLocalAssetException) { token.ThrowIfCancellationRequested(); return null; }
         }
         public static void Describe(Pack pack, CancellationToken token)
         {
@@ -89,10 +124,16 @@ namespace BrokenPhone
             }
             return null;
         }
+        public static void ValidateDescriptor(Pack remote)
+        {
+            if (remote == null || remote.pendingDownload || remote.lines == null || remote.lines.Count == 0 || remote.sourceFiles == null || remote.lines.Any(line => line == null || Double.IsNaN(line.start) || Double.IsInfinity(line.start) || Double.IsNaN(line.end) || Double.IsInfinity(line.end) || line.start < 0 || line.end <= line.start || line.end > 3600)) throw new InvalidDataException("Некорректные данные выбранного пака.");
+            PackSources.Validate(remote);
+            const long limit = 2L * 1024 * 1024 * 1024;
+            if (Key(remote) != remote.contentKey || !PackSources.Hash(remote.contentKey) || !PackSources.Hash(remote.videoHash) || remote.videoBytes <= 0 || remote.videoBytes > limit || remote.backgroundBytes < 0 || remote.backgroundBytes > limit - remote.videoBytes || remote.backgroundBytes > 0 && !PackSources.Hash(remote.backgroundHash)) throw new InvalidDataException("Некорректные данные выбранного пака.");
+        }
         public static async Task<Pack> Prepare(Pack remote, Func<string, string, Action<long, long>, CancellationToken, Task<string>> asset, Action<PackProgress> progress, CancellationToken token, bool useCache = true, string sourceFolder = null)
         {
-            PackSources.Validate(remote);
-            if (Key(remote) != remote.contentKey || !Regex.IsMatch(remote.contentKey ?? "", @"^[a-f0-9]{64}$") || !Regex.IsMatch(remote.videoHash ?? "", @"^[a-f0-9]{64}$") || remote.videoBytes <= 0 || remote.videoBytes + remote.backgroundBytes > 2L * 1024 * 1024 * 1024) throw new InvalidDataException("Некорректные данные выбранного пака.");
+            ValidateDescriptor(remote);
             progress(PackProgress.Step("Подготавливаем пак…"));
             var cached = useCache ? await Task.Run(() => Cached(remote, token), token).ConfigureAwait(false) : null;
             if (cached != null) { progress(new PackProgress { Stage = "Пак уже загружен", Fraction = 1 }); return cached; }

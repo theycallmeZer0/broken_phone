@@ -28,7 +28,7 @@ namespace BrokenPhone
                 window.Show(); window.UpdateLayout();
                 var panel = (WrapPanel)window.FindName("PackCards");
                 var cards = panel.Children.Cast<FrameworkElement>().ToArray();
-                foreach (string removed in new[] { "SearchButton", "PreviousGalleryButton", "NextGalleryButton", "ImportButton", "ChoosePacksFolderButton", "SteamOverlayButton", "HelpButton" }) if (window.FindName(removed) != null) throw new Exception("Лишняя кнопка: " + removed);
+                foreach (string removed in new[] { "SearchButton", "PreviousGalleryButton", "NextGalleryButton", "ImportButton", "ChoosePacksFolderButton", "SteamOverlayButton", "HelpButton", "PackSettingsTab", "PackSettingsSection", "PackSourceCombo", "LocalPackSettings", "SteamPackSettings", "PacksFolderInput", "BrowsePacksFolderButton" }) if (window.FindName(removed) != null) throw new Exception("Лишний элемент интерфейса: " + removed);
                 var gallery = (ScrollViewer)window.FindName("PackViewport"); gallery.ScrollToEnd(); window.UpdateLayout();
                 if (gallery.ScrollableHeight <= 0 || gallery.VerticalOffset <= 0 || cards.Any(card => card.Visibility != Visibility.Visible)) throw new Exception("Все паки не доступны через единую прокрутку.");
                 gallery.ScrollToTop(); window.UpdateLayout();

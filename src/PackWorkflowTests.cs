@@ -136,19 +136,19 @@ namespace BrokenPhone
                     for (int i = 1; i <= 12; i++) { await Task.Delay(80, token); progress(PackProgress.Bytes("Загрузка", i * 100, 1200)); }
                     return await Task.Run(() => PackLibrary.Import(archive, item.Id, token), token);
                 }); AttachDownloadQueue();
-                settings.LocalPacks = false; RenderPackSource(); Page("Workshop"); packControls.Clear(); C<WrapPanel>("PackCards").Children.Clear();
+                RenderPackSource(); Page("Workshop"); packControls.Clear(); C<WrapPanel>("PackCards").Children.Clear();
                 WorkshopCard(new WorkshopItem { Id = "9900201", Title = "Первый тестовый пак", Lines = 4, Roles = 2 }); WorkshopCard(new WorkshopItem { Id = "9900202", Title = "Второй тестовый пак", Lines = 4, Roles = 2 });
                 packControls["9900201"].Select.IsChecked = true; packControls["9900202"].Select.IsChecked = true;
                 if (!B("DownloadSelectedButton").IsEnabled) throw new Exception("Не работает выбор нескольких паков.");
                 B("DownloadSelectedButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-                await Until(() => packDownloads.Snapshot().Count(j => j.State == "loading") == 2 && packControls.Values.All(c => !c.Download.IsEnabled), "Кнопки не заблокированы при загрузке.");
+                await Until(() => packDownloads.Snapshot().Count(j => j.State == "loading") == 2 && packControls.Values.All(c => c.Download.IsEnabled), "Выбор пака ведущим недоступен во время фоновой загрузки.");
                 await Task.Delay(200); SaveScreen("workshop-downloads-preview.png");
                 packControls["9900201"].Cancel.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
                 await Until(() => packDownloads.Snapshot().Any(j => j.Item.Id == "9900202" && j.State == "ready") && packControls["9900202"].Download.IsEnabled, "Загрузка второго пака не завершилась.");
                 if (state.pack.id != selected || currentPage != "Workshop" || packControls["9900201"].Download.IsEnabled == false) throw new Exception("Предзагрузка изменила лобби или кнопка отменённой загрузки не восстановилась.");
-                report.Add("PASS: batch selection, two loading cards, disabled busy buttons, live progress, individual cancel and no automatic lobby selection");
+                report.Add("PASS: batch selection, two loading cards, host lobby selection remains available, live progress, individual cancel and no automatic lobby selection");
                 packControls["9900202"].Download.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-                await Until(() => state.pack.workshopId == "9900202" && guestState != null && guestState.pack.workshopId == "9900202", "Выбор пака не передался гостю.");
+                await Until(() => state.pack.Selected && !state.pack.pendingDownload && state.pack.workshopId == "9900202" && guestState != null && guestState.pack.Selected && !guestState.pack.pendingDownload && guestState.pack.workshopId == "9900202", "Подготовленный пак не передался гостю.");
                 if (String.IsNullOrEmpty(guestState.pack.thumbnail) || guestState.pack.DisplayLines != 4 || guestState.pack.DisplayRoles != 2 || C<PackCover>("PackPreview").Source == null) throw new Exception("Гость не получил обложку, реплики или роли.");
                 CheckPackPreviewFits(); SaveScreen("selected-pack-preview.png");
                 var preview = C<PackCover>("PackPreview"); var source = preview.Source; var root = C<Grid>("Root"); double width = root.Width;

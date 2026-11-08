@@ -59,7 +59,7 @@ namespace BrokenPhone
                         }
                         Check(found == steam.LobbyId, "Поиск по коду нашёл другую комнату.");
                         Check(steam.CodeForLobby(found).GetAwaiter().GetResult() == server.Code, "Из приглашения Steam не получен код комнаты.");
-                        report.Add("PASS: real Steam lobby published and found by six-character code with exact game/protocol filters and worldwide search; current room stays connected during lookup");
+                        report.Add("PASS: real Steam lobby published and found by six-character code with exact game/code lookup, version/build validation and worldwide search; current room stays connected during lookup");
                         int tunnelPort = steam.OpenTunnel(steam.UserId);
                         guest.Client.Connect("127.0.0.1", tunnelPort, server.Code, "Steam P2P loopback test", "");
                         host.Wait(s => s.players.Count == 2, 10); guest.Wait(s => s.players.Count == 2, 10);

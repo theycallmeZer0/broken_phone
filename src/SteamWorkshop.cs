@@ -65,7 +65,7 @@ namespace BrokenPhone
             lock (Gate)
             {
                 if (!Available || disposed || !SteamNative.SteamAPI_ISteamApps_BIsSubscribedApp(SteamNative.SteamAPI_SteamApps_v008(), UInt32.Parse(WorkshopService.AppId)))
-                    throw new IOException("Для загрузки этих паков текущему профилю Steam нужен доступ к Dub Together. Повторный вход в Steam не требуется.");
+                    throw new IOException("Steam не разрешает прямую загрузку этого пака. Выбери его в лобби, чтобы получить копию от участников, или попробуй другой пак.");
             }
             progress(PackProgress.Step("Подключаем Workshop к текущему профилю Steam…"));
             await workshopHelper.WaitAsync(cancellation).ConfigureAwait(false);

@@ -31,10 +31,11 @@ namespace BrokenPhone
             {
                 B("ReadyButton").IsEnabled = state.pack.Selected;
                 bool enough = state.roles.Count >= state.players.Count;
-                B("StartButton").IsEnabled = IsHost && enough && downloadCancellation == null && state.players.Count >= 2 && state.players.All(player => player.ready);
-                if (!state.pack.Selected) Text("StartHint", "Пак не выбран. Выбери его в мастерской.");
+                B("StartButton").IsEnabled = IsHost && state.pack.Selected && enough && downloadCancellation == null && state.players.Count >= 2 && state.players.All(player => player.ready);
+                if (state.pack.pendingDownload) Text("StartHint", "Загружаем выбранный пак. Статус виден рядом с каждым игроком.");
+                else if (!state.pack.Selected) Text("StartHint", "Пак не выбран. Выбери его в мастерской.");
                 else if (!enough) Text("StartHint", "Ролей: " + state.roles.Count + ", игроков: " + state.players.Count + ". Выбери пак с ролью для каждого.");
-                Text("ReadyHint", "Начало игры → выбор ролей → загрузка пака → озвучка.");
+                Text("ReadyHint", "Выбор пака → загрузка у игроков → готовность → выбор ролей → озвучка.");
             }
             if (currentPage != "Roles") return;
             Text("RolesPackTitle", state.pack.title.ToUpperInvariant());

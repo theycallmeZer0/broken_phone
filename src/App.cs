@@ -47,6 +47,13 @@ namespace BrokenPhone
                 File.WriteAllText(System.IO.Path.Combine(Paths.Cache, "cancel-child.pid"), child.Id.ToString()); if (!args.Contains("--transfer-worker-exits")) Thread.Sleep(30000); return 0;
             }
             if (args.Contains("--lobby-pack-test")) return SelfTests.LobbyPackRegression();
+            if (args.Contains("--version-test")) return SelfTests.VersionRegression();
+            if (args.Contains("--download-priority-test")) return SelfTests.DownloadPriorityRegression();
+            if (args.Contains("--workshop-relay-test")) return SelfTests.WorkshopRelayRegression();
+            if (args.Contains("--render-speed-test")) return SelfTests.RenderSpeedRegression();
+            if (args.Contains("--workshop-selection-test")) return SelfTests.WorkshopSelectionRegression();
+            if (args.Contains("--workshop-peer-test")) return SelfTests.WorkshopPeerRegression();
+            if (args.Contains("--pack-swarm-test")) return SelfTests.PackSwarmRegression();
             if (args.Contains("--playback-disconnect-test")) return SelfTests.PlaybackDisconnectRegression();
             if (args.Contains("--steam-test")) return SelfTests.SteamIntegration();
             if (args.Contains("--steam-workshop-test")) return SelfTests.SteamWorkshopIntegration(args[Array.IndexOf(args, "--steam-workshop-test") + 1]);
@@ -91,7 +98,7 @@ namespace BrokenPhone
             app.DispatcherUnhandledException += delegate(object sender, DispatcherUnhandledExceptionEventArgs e)
             {
                 File.AppendAllText(System.IO.Path.Combine(Paths.Data, "error.log"), DateTime.Now + " " + e.Exception + Environment.NewLine);
-                if (args.Contains("--screening-test") || (args.Contains("--steam-ui-test") || args.Contains("--steam-overlay-test")) || args.Contains("--end-test") || args.Contains("--ui-smoke") || args.Contains("--microphone-ui-test") || (args.Contains("--folder-packs-ui-test") || args.Contains("--pack-views-ui-test")) || args.Contains("--roles-ui-test") || (args.Contains("--presentation-ui-test") || (args.Contains("--empty-lobby-ui-test") || args.Contains("--display-ui-test") || (args.Contains("--audio-output-ui-test") || args.Contains("--join-ui-test"))) || args.Contains("--turn-navigation-ui-test") || args.Contains("--playback-sync-test"))) { File.WriteAllText(System.IO.Path.Combine(Paths.Base, "ui-error.txt"), e.Exception.ToString()); e.Handled = true; app.Shutdown(1); return; }
+                if (args.Contains("--download-priority-ui-test") || args.Contains("--download-continuity-ui-test") || args.Contains("--workshop-selection-ui-test") || args.Contains("--screening-test") || (args.Contains("--steam-ui-test") || args.Contains("--steam-overlay-test")) || args.Contains("--end-test") || args.Contains("--ui-smoke") || args.Contains("--microphone-ui-test") || (args.Contains("--folder-packs-ui-test") || args.Contains("--pack-views-ui-test")) || args.Contains("--roles-ui-test") || (args.Contains("--presentation-ui-test") || (args.Contains("--empty-lobby-ui-test") || args.Contains("--display-ui-test") || (args.Contains("--audio-output-ui-test") || args.Contains("--join-ui-test"))) || args.Contains("--turn-navigation-ui-test") || args.Contains("--playback-sync-test"))) { File.WriteAllText(System.IO.Path.Combine(Paths.Base, "ui-error.txt"), e.Exception.ToString()); e.Handled = true; app.Shutdown(1); return; }
                 MessageBox.Show(e.Exception.Message, "Broken Phone"); e.Handled = true;
             };
             Window window;
@@ -100,6 +107,9 @@ namespace BrokenPhone
             window.Loaded += async delegate
             {
                 await controller.Start();
+                if (args.Contains("--workshop-selection-ui-test")) await controller.WorkshopSelectionSmoke();
+                if (args.Contains("--download-priority-ui-test")) await controller.DownloadPrioritySmoke();
+                if (args.Contains("--download-continuity-ui-test")) await controller.DownloadContinuitySmoke();
                 if (args.Contains("--folder-packs-ui-test")) await controller.FolderPacksSmoke();
                 if (args.Contains("--pack-views-ui-test")) await controller.PackViewsSmoke();
                 if (args.Contains("--roles-ui-test")) await controller.RolesSmoke();
@@ -154,8 +164,6 @@ namespace BrokenPhone
         public bool Streamer;
         public int VoiceEffect;
         public bool NoiseGate;
-        public bool LocalPacks;
-        public string PacksFolder = "";
         public double ResultVoiceVolume = 1, ResultBackgroundVolume = 1, ResultOriginalVolume;
         public double OriginalPreviewVolume = 1;
         public string DisplayMode = "fullscreen";
@@ -268,7 +276,7 @@ namespace BrokenPhone
             B("SubmitButton").Click += async delegate { await Guard(Submit); };
             C<Slider>("VolumeSlider").ValueChanged += delegate { UpdatePreviewVolume(); checkPlayback.Volume = headphonePlayback.Volume = C<Slider>("VolumeSlider").Value; C<MediaElement>("Video").Volume = 0; UpdateFinalVolumes(); };
             C<ComboBox>("SortCombo").SelectedIndex = 0; C<ComboBox>("LanguageCombo").SelectedIndex = 1;
-            InitializeFolderPacks();
+            RenderPackSource();
             InitializePackSearch();
             var surface = C<Grid>("VideoSurface"); surface.SizeChanged += delegate { surface.Clip = new RectangleGeometry(new Rect(0, 0, surface.ActualWidth, surface.ActualHeight), 18, 18); };
             var video = C<MediaElement>("Video"); video.Volume = settings.Volume; C<Slider>("VolumeSlider").Value = settings.Volume;
@@ -354,8 +362,8 @@ namespace BrokenPhone
             try
             {
                 Page("Workshop"); await Search(); await Task.Delay(2500); SaveScreen("workshop-live-preview.png");
-                var cards = C<WrapPanel>("PackCards"); if (cards.Children.Count < (settings.LocalPacks ? 1 : 3)) throw new Exception("Недостаточно карточек для проверки.");
-                File.WriteAllText(System.IO.Path.Combine(Paths.Base, "workshop-ui-test.txt"), "PASS: " + (settings.LocalPacks ? "local folder catalog" : "live Steam catalog") + ", responsive cards, dark controls and pack metadata");
+                var cards = C<WrapPanel>("PackCards"); if (cards.Children.Count < 3) throw new Exception("Недостаточно карточек для проверки.");
+                File.WriteAllText(System.IO.Path.Combine(Paths.Base, "workshop-ui-test.txt"), "PASS: live Steam catalog, responsive cards, dark controls and pack metadata");
             }
             catch (Exception e) { File.WriteAllText(System.IO.Path.Combine(Paths.Base, "workshop-ui-test.txt"), "FAIL: " + e); }
             finally { window.Close(); }
@@ -397,7 +405,7 @@ namespace BrokenPhone
             try { server = new RoomServer(initial, Connection.DefaultPort); }
             catch (System.Net.Sockets.SocketException) { server = new RoomServer(initial, 0); }
             await Connect("127.0.0.1", server.Port, server.Code, server.Secret);
-            if (steam.Available) try { await steam.HostRoom(server.Code, server.Port); } catch (Exception e) { Toast("Не удалось создать комнату Steam. " + e.Message); }
+            if (steam.Available) try { await steam.HostRoom(server.Code, server.Port); ConfigurePackSharingSteam(); } catch (Exception e) { Toast("Не удалось создать комнату Steam. " + e.Message); }
             RefreshConnection(); Text("SteamNetworkStatus", steam.Status);
         }
         async Task Connect(string host, int port, string code, string secret)
@@ -411,6 +419,7 @@ namespace BrokenPhone
         }
         void Disconnect()
         {
+            CancelPendingWorkshop();
             ResetFinalPlayer(); voice.Close(); ClearTurnGroup(); ClearOriginalClips(); StopMicrophonePanel(); if (preparationCancel != null) preparationCancel.Cancel(); preparedAckRound = null;
             if (steam != null) steam.LeaveRoom();
             if (effectCancellation != null) effectCancellation.Cancel(); takeRevision++; voiceRevision++;
@@ -422,10 +431,11 @@ namespace BrokenPhone
         void Receive(Message message)
         {
             if (message.kind == "error" || message.kind == "kicked") { Toast(message.text); return; }
+            if (message.kind == "workshop_offer") { ReceiveWorkshopOffer(message); return; }
             if (message.kind != "state") return;
             if (state != null && state.pack.contentKey != message.state.pack.contentKey) { if (preparationCancel != null) preparationCancel.Cancel(); sourceFile = null; sourcePrepared = false; videoDownload = null; }
             string previousPhase = state == null ? "" : state.phase;
-            state = message.state; EnsureSelectedPack(); if (steam.Available) steam.SetJoinable(state.phase == "lobby");
+            state = message.state; ConfigurePackSharingSteam(); EnsureSelectedPack(); if (steam.Available) steam.SetJoinable(state.phase == "lobby");
             B("LobbyTab").IsEnabled = state.phase == "lobby" || state.phase == "result" && IsHost; RenderLobby();
             B("WorkshopTab").IsEnabled = state.phase != "casting";
             if (state.phase == "casting")
@@ -452,9 +462,10 @@ namespace BrokenPhone
         void RenderLobby()
         {
             Text("PlayerCount", state.players.Count + " / 8"); Text("RoomCode", settings.Streamer ? "••••••" : state.code);
-            Text("PackTitle", state.pack.title); Text("PackMeta", state.pack.Selected ? "Реплик: " + state.pack.DisplayLines + "   ·   Ролей: " + state.pack.DisplayRoles + "   ·   " + Math.Ceiling(state.pack.lines.Max(line => line.end)) + " сек." : "Выбери пак в мастерской"); Text("PackDescription", state.pack.Selected ? state.pack.description : "");
-            B("ChoosePackButton").Content = state.pack.Selected ? "Выбрать другой пак   ↗" : "Выбрать пак   ↗";
-            Text("PosterBadge", !state.pack.Selected ? "ПАК НЕ ВЫБРАН" : !String.IsNullOrEmpty(state.pack.workshopId) ? "WORKSHOP" : "ВАШ ПАК");
+            bool pending = state.pack.pendingDownload;
+            Text("PackTitle", state.pack.title); Text("PackMeta", pending ? "Пак выбран · загружаем файлы для комнаты" : state.pack.Selected ? "Реплик: " + state.pack.DisplayLines + "   ·   Ролей: " + state.pack.DisplayRoles + "   ·   " + Math.Ceiling(state.pack.lines.Max(line => line.end)) + " сек." : "Выбери пак в мастерской"); Text("PackDescription", pending ? "Игроки получают пак после выбора. Если Steam не разрешает загрузку, используем копию участника. Для повтора выбери пак ещё раз." : state.pack.Selected ? state.pack.description : "");
+            B("ChoosePackButton").Content = state.pack.Selected || pending ? "Выбрать другой пак   ↗" : "Выбрать пак   ↗";
+            Text("PosterBadge", pending ? "ЗАГРУЗКА ПАКА" : !state.pack.Selected ? "ПАК НЕ ВЫБРАН" : !String.IsNullOrEmpty(state.pack.workshopId) ? "WORKSHOP" : "ВАШ ПАК");
             string previewKey = state.pack.id + ":" + state.pack.preview + ":" + (state.pack.thumbnail ?? "").GetHashCode();
             if (posterKey != previewKey)
             {
@@ -473,7 +484,7 @@ namespace BrokenPhone
                     var avatar = Avatar(p, 44); avatar.VerticalAlignment = VerticalAlignment.Center; row.Children.Add(avatar);
                     var label = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0, 0, 0) }; Grid.SetColumn(label, 1);
                     label.Children.Add(new TextBlock { Text = p.name + (p.id == client.Id ? " · ты" : ""), FontSize = 16, FontWeight = FontWeights.Bold, TextTrimming = TextTrimming.CharacterEllipsis, ToolTip = p.name });
-                    label.Children.Add(new TextBlock { Text = (p.host ? "Ведущий" : "По сети") + (state.pack.Selected && !String.IsNullOrEmpty(p.loadStatus) ? " · " + (p.downloadProgress > 0 && p.downloadProgress < 1 ? (p.downloadProgress * 100).ToString("0") + "% · " : "") + p.loadStatus : ""), FontSize = 9, Foreground = Brush("#858478"), TextTrimming = TextTrimming.CharacterEllipsis, ToolTip = p.loadStatus }); row.Children.Add(label);
+                    label.Children.Add(new TextBlock { Text = (p.host ? "Ведущий" : "По сети") + ((state.pack.Selected || pending) && !String.IsNullOrEmpty(p.loadStatus) ? " · " + (p.downloadProgress > 0 && p.downloadProgress < 1 ? (p.downloadProgress * 100).ToString("0") + "% · " : "") + p.loadStatus : ""), FontSize = 9, Foreground = Brush("#858478"), TextTrimming = TextTrimming.CharacterEllipsis, ToolTip = p.loadStatus }); row.Children.Add(label);
                     var actions = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Center }; Grid.SetColumn(actions, 2);
                     actions.Children.Add(new TextBlock { Text = p.ready ? "✓" : "·", Foreground = Brush(p.ready ? "#638352" : "#A19B8E"), FontSize = 19, VerticalAlignment = VerticalAlignment.Center });
                     if (IsHost && !p.host) { var kick = SmallButton("×", delegate { Send(new Message { kind = "kick", id = p.id }); }); kick.Padding = new Thickness(5, 0, 0, 0); kick.BorderThickness = new Thickness(0); actions.Children.Add(kick); }
@@ -487,8 +498,8 @@ namespace BrokenPhone
                 }
                 players.Children.Add(row);
             }
-            B("ChoosePackButton").IsEnabled = IsHost; B("StartButton").IsEnabled = IsHost && state.phase == "lobby" && downloadCancellation == null && state.players.Count >= 2 && state.players.All(p => p.ready);
-            B("ReadyButton").Content = Me != null && Me.ready ? "✓  Готов" : "Я готов"; B("ReadyButton").IsEnabled = state.phase == "lobby";
+            B("ChoosePackButton").IsEnabled = IsHost; B("StartButton").IsEnabled = IsHost && state.pack.Selected && state.phase == "lobby" && downloadCancellation == null && state.players.Count >= 2 && state.players.All(p => p.ready);
+            B("ReadyButton").Content = Me != null && Me.ready ? "✓  Готов" : "Я готов"; B("ReadyButton").IsEnabled = state.pack.Selected && state.phase == "lobby";
             Text("StartHint", state.players.Count < 2 ? "Пригласи друга через Steam" : state.players.All(p => p.ready) ? "Вся команда в сборе. Можно начинать!" : "Готовность: " + state.players.Count(p => p.ready) + " из " + state.players.Count);
             Text("ConnectionLabel", IsHost ? "Твоя комната · " + state.players.Count + "/8" : "В комнате · " + state.players.Count + "/8");
             FitPlayers(); RenderChat(); RenderConnection(); RenderRoles();
@@ -544,30 +555,26 @@ namespace BrokenPhone
             if (microphone.Recording) { Toast("Сначала заверши запись."); return; }
             Page("Settings"); changingMicDevice = true; RenderPlayerName(); C<ComboBox>("MicrophoneCombo").ItemsSource = MicrophoneRecorder.Devices(); C<ComboBox>("MicrophoneCombo").SelectedIndex = Math.Min(settings.Microphone, C<ComboBox>("MicrophoneCombo").Items.Count - 1); changingMicDevice = false; if (checkDevice != C<ComboBox>("MicrophoneCombo").SelectedIndex) { ClearMicCheck(); checkDevice = C<ComboBox>("MicrophoneCombo").SelectedIndex; }
             C<Slider>("VolumeSlider").Value = settings.Volume; C<CheckBox>("StreamerCheck").IsChecked = settings.Streamer;
-            TBox("PacksFolderInput").Text = PacksFolder; C<ComboBox>("PackSourceCombo").SelectedIndex = settings.LocalPacks ? 0 : 1; RenderPackSourceSettings();
             OpenDisplaySettings();
             OpenOutputSettings();
             SettingsSection("Player");
         }
-        async Task SaveSettings()
+        Task SaveSettings()
         {
-            bool local = C<ComboBox>("PackSourceCombo").SelectedIndex != 1; string folder = FolderPacks.Normalize(TBox("PacksFolderInput").Text);
-            if (local && !Directory.Exists(folder)) throw new DirectoryNotFoundException("Папка с паками не найдена. Проверь путь или нажми «Обзор…».");
             if (!steam.Available) settings.Name = String.IsNullOrWhiteSpace(TBox("NameInput").Text) ? Environment.UserName : TBox("NameInput").Text.Trim(); settings.Microphone = Math.Max(0, C<ComboBox>("MicrophoneCombo").SelectedIndex); settings.Volume = C<Slider>("VolumeSlider").Value;
             settings.Streamer = C<CheckBox>("StreamerCheck").IsChecked == true;
-            await ApplyPackSource(local, folder); SaveDisplaySettings(); if (state != null && state.phase == "lobby") Send(new Message { kind = "rename", text = PlayerName }); Toast("Настройки сохранены."); if (state != null) RenderLobby(); Page("Lobby");
+            SaveDisplaySettings(); if (state != null && state.phase == "lobby") Send(new Message { kind = "rename", text = PlayerName }); Toast("Настройки сохранены."); if (state != null) RenderLobby(); Page("Lobby");
+            return Task.FromResult(0);
         }
         void Persist() { File.WriteAllText(SettingsFile, Json.Write(settings)); }
         void OpenWorkshop() { Page("Workshop"); if (C<WrapPanel>("PackCards").Children.Count == 0) { var ignored = Guard(Search); } }
         async Task Search()
         {
             searchTimer.Stop(); int generation = ++searchGeneration; string query = TBox("SearchInput").Text; int sort = C<ComboBox>("SortCombo").SelectedIndex, language = C<ComboBox>("LanguageCombo").SelectedIndex;
-            if (folderScan != null) folderScan.Cancel();
             Text("WorkshopStatus", "Загружаем каталог…"); C<ScrollViewer>("PackViewport").ScrollToTop();
             try
             {
                 var cards = C<WrapPanel>("PackCards"); packControls.Clear(); cards.Children.Clear();
-                if (settings.LocalPacks) { await SearchFolder(query, language, generation); return; }
                 if (showMyPacks)
                 {
                     if (refreshMyPacks)
@@ -594,7 +601,7 @@ namespace BrokenPhone
         }
         void LocalCard(Pack pack)
         {
-            var body = CardBase(pack.title, FolderPacks.InLibrary(pack) ? "В МОЕЙ КОЛЛЕКЦИИ" : "ИЗ ВЫБРАННОЙ ПАПКИ", "Реплик: " + pack.DisplayLines + "   ·   Ролей: " + pack.DisplayRoles, pack.preview);
+            var body = CardBase(pack.title, "В МОЕЙ КОЛЛЕКЦИИ", "Реплик: " + pack.DisplayLines + "   ·   Ролей: " + pack.DisplayRoles, pack.preview);
             ((Border)body.Parent).ToolTip = pack.root;
             var cover = ((Border)body.Children[0]); var source = Cover(pack.thumbnail, pack.preview); if (source != null) cover.Child = new PackCover { Source = source };
             body.Children.Add(SmallButton("Выбрать для лобби  →", async delegate
@@ -603,7 +610,8 @@ namespace BrokenPhone
                 {
                     if (!IsHost) { Toast("Пак выбирает ведущий."); return; }
                     if (state == null || state.phase != "lobby") { Toast("Выбор пака доступен ведущему в лобби."); return; }
-                    if (!FolderPacks.InLibrary(pack) || System.IO.Path.GetExtension(pack.video).ToLowerInvariant() != ".mp4")
+                    if (!FolderPacks.InLibrary(pack)) { Toast("Этот пак отсутствует в коллекции игры. Выбери его в мастерской."); return; }
+                    if (System.IO.Path.GetExtension(pack.video).ToLowerInvariant() != ".mp4")
                     {
                         await DownloadPack(token => Task.Run(() => FolderPacks.Prepare(pack, token), token), "Копируем пак в игру и подготавливаем видео…"); return;
                     }
@@ -655,14 +663,6 @@ namespace BrokenPhone
             catch (Exception error) { Trace.WriteLine(error); }
             return null;
         }
-        async Task Import()
-        {
-            if (!IsHost) { Toast("Пак выбирает ведущий."); return; }
-            var picker = new OpenFileDialog { Filter = "Пак или видео|*.zip;*.dubpack;*.mp4;*.webm;*.mkv;*.mov;*.avi;*.json|Все файлы|*.*", Title = "Выберите ZIP, видео или pack.json из папки пака" };
-            if (picker.ShowDialog(window) != true) return;
-            string source = System.IO.Path.GetExtension(picker.FileName).ToLowerInvariant() == ".json" ? System.IO.Path.GetDirectoryName(picker.FileName) : picker.FileName;
-            await DownloadPack(token => Task.Run(() => PackLibrary.Import(source, "", token), token), "Проверяем и импортируем пак…");
-        }
         async Task DownloadPack(Func<CancellationToken, Task<Pack>> load, string description)
         {
             if (downloadCancellation != null) { Toast("Уже идёт загрузка. Дождись её или нажми «Отменить»."); return; }
@@ -707,6 +707,6 @@ namespace BrokenPhone
             var mouth = new TextBlock { Text = "⌣", FontSize = 15, Foreground = Brush("#1D2130") }; Canvas.SetLeft(mouth, 10); Canvas.SetTop(mouth, 12); face.Children.Add(mouth);
             return new Border { Width = size, Height = size, Background = Brush(colors[color % colors.Length]), BorderBrush = Brush("#292923"), BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(10), Child = new Viewbox { Child = face }, ClipToBounds = true };
         }
-        public void Dispose() { disposed = true; if (folderScan != null) folderScan.Cancel(); if (downloadCancellation != null) downloadCancellation.Cancel(); if (effectCancellation != null) effectCancellation.Cancel(); tick.Stop(); toastTimer.Stop(); searchTimer.Stop(); if (packDownloads != null) packDownloads.Dispose(); Disconnect(); microphone.Dispose(); checkMicrophone.Dispose(); checkPlayback.Close(); DeleteMicFile(); voice.Close(); if (steam != null) steam.Dispose(); }
+        public void Dispose() { disposed = true; if (downloadCancellation != null) downloadCancellation.Cancel(); if (effectCancellation != null) effectCancellation.Cancel(); tick.Stop(); toastTimer.Stop(); searchTimer.Stop(); if (packDownloads != null) packDownloads.Dispose(); Disconnect(); microphone.Dispose(); checkMicrophone.Dispose(); checkPlayback.Close(); DeleteMicFile(); voice.Close(); if (steam != null) steam.Dispose(); }
     }
 }

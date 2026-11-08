@@ -43,7 +43,6 @@ namespace BrokenPhone
         {
             B("PlayerSettingsTab").Click += delegate { SettingsSection("Player"); };
             B("DisplaySettingsTab").Click += delegate { SettingsSection("Display"); };
-            B("PackSettingsTab").Click += delegate { SettingsSection("Pack"); };
             C<StackPanel>("PlayersList").SizeChanged += delegate { FitPlayers(); };
             C<ComboBox>("DisplayModeCombo").SelectionChanged += delegate { UpdateDisplayHint(); };
             C<Grid>("WindowSurface").SizeChanged += delegate(object sender, SizeChangedEventArgs e)
@@ -62,7 +61,7 @@ namespace BrokenPhone
         void SettingsSection(string section)
         {
             if (section != "Player") StopMicrophonePanel();
-            foreach (string name in new[] { "Player", "Display", "Pack" })
+            foreach (string name in new[] { "Player", "Display" })
             {
                 C<StackPanel>(name + "SettingsSection").Visibility = name == section ? Visibility.Visible : Visibility.Collapsed;
                 B(name + "SettingsTab").Background = Brush(name == section ? "#39324F" : "#26222E");

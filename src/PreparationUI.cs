@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Controls;
@@ -11,8 +12,15 @@ namespace BrokenPhone
         string preparedAckRound;
         long lastPreparationReport;
         string downloadingPackKey;
+        void ConfigurePackSharingSteam()
+        {
+            if (steam == null || !steam.Available || steam.LobbyId == 0 || client == null) return;
+            try { steam.ListenForPackPeers(IsHost && server != null ? server.PackSharePort : client.PackSharePort); client.OpenPackTunnel = steam.OpenPackTunnel; }
+            catch (Exception) { client.OpenPackTunnel = null; }
+        }
         void EnsureSelectedPack()
         {
+            EnsurePendingWorkshop();
             if (state == null || !state.pack.Selected || state.phase != "lobby" && state.phase != "casting" && state.phase != "loading") return;
             if (videoDownload != null && videoDownloadClient == client && downloadingPackKey == state.pack.contentKey) return;
             videoDownloadClient = client; downloadingPackKey = state.pack.contentKey;
@@ -34,12 +42,14 @@ namespace BrokenPhone
         {
             try
             {
-                var local = await PackContent.PrepareSelected(pack, steam != null && steam.Available ? (Func<WorkshopItem, Action<PackProgress>, CancellationToken, Task<Pack>>)workshop.DownloadProgress : null, (asset, extension, progress, cancellation) => room.Asset(asset, extension, progress, cancellation, pack.contentKey), progress =>
+                var assets = new ConcurrentDictionary<string, Lazy<Task<string>>>();
+                var local = await PackContent.PrepareAssisted(pack, SelectedWorkshopDownload(room, pack), (asset, extension, progress, cancellation) => assets.GetOrAdd(asset, _ => new Lazy<Task<string>>(() => room.PackAsset(pack, asset, extension, progress, cancellation))).Value, progress =>
                 {
                     long now = Playback.Now; if (progress.Fraction < 1 && now - lastPreparationReport < 220) return; lastPreparationReport = now;
-                    if (!disposed && client == room && !token.IsCancellationRequested) room.Send(new Message { kind = "pack_download_progress", id = pack.contentKey, position = Math.Max(0, progress.Fraction), text = progress.Stage });
-                }, token, PacksFolder);
+                    if (!disposed && client == room && !token.IsCancellationRequested) room.Send(new Message { kind = "pack_download_progress", id = pack.contentKey, position = Math.Max(0, progress.Fraction), text = progress.Stage + (room.PackHelperCount > 0 ? " · помогают игроки: " + room.PackHelperCount : "") });
+                }, token, Paths.Packs, cancellation => room.WaitForPackHelpers(pack, cancellation));
                 token.ThrowIfCancellationRequested();
+                await Task.Run(() => room.SharePack(pack, local), token);
                 if (!disposed && client == room) room.Send(new Message { kind = "pack_download_ready", id = pack.contentKey });
                 return local.video;
             }

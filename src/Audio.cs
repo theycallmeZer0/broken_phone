@@ -189,9 +189,24 @@ namespace BrokenPhone
         public static string N(double value) { return value.ToString("0.###", CultureInfo.InvariantCulture); }
         public static string MovieAudio(Pack pack) { return !String.IsNullOrEmpty(pack.background) ? pack.background : !String.IsNullOrEmpty(pack.original) && File.Exists(pack.original) ? pack.original : ""; }
         public static string MovieKind(Pack pack) { return !String.IsNullOrEmpty(pack.background) ? "background" : String.IsNullOrEmpty(MovieAudio(pack)) ? "none" : "original"; }
+        sealed class RenderSource { public double Duration; public bool CopyVideo; }
+        static RenderSource ProbeRenderSource(string video)
+        {
+            var data = Json.Read<Dictionary<string, object>>(Tools.Run("ffprobe", "-v error -select_streams v:0 -show_entries stream=codec_name,pix_fmt:format=duration -of json " + Tools.Quote(video), 30000));
+            object value; double duration;
+            var format = data.TryGetValue("format", out value) ? value as Dictionary<string, object> : null;
+            if (format == null || !format.TryGetValue("duration", out value) || !Double.TryParse(Convert.ToString(value), NumberStyles.Float, CultureInfo.InvariantCulture, out duration) || Double.IsNaN(duration) || Double.IsInfinity(duration) || duration <= 0 || duration > 3600)
+                throw new InvalidDataException("Не удалось прочитать видео (допускаются клипы до 60 минут).");
+            var result = new RenderSource { Duration = duration };
+            var streams = data.TryGetValue("streams", out value) ? value as System.Collections.IEnumerable : null;
+            if (streams != null)
+                foreach (Dictionary<string, object> stream in streams)
+                    result.CopyVideo = stream.ContainsKey("codec_name") && Convert.ToString(stream["codec_name"]) == "h264" && stream.ContainsKey("pix_fmt") && Convert.ToString(stream["pix_fmt"]) == "yuv420p";
+            return result;
+        }
         public static void Render(Pack pack, string[] takes, string output)
         {
-            double duration = PackLibrary.Duration(pack.video);
+            var source = ProbeRenderSource(pack.video); double duration = source.Duration;
             string track = Path.Combine(Path.GetDirectoryName(output), "voices.wav");
             // A float timeline adds overlapping takes without clipping either voice.
             // Bounded blocks keep long videos out of memory; FFmpeg limits the final mix once.
@@ -220,16 +235,31 @@ namespace BrokenPhone
                     }
                 }
             }
-            string args = "-y -v error -i " + Tools.Quote(pack.video) + " -i " + Tools.Quote(track);
-            bool background = !String.IsNullOrEmpty(pack.background);
-            if (background) args += " -i " + Tools.Quote(pack.background);
-            string filter = background ? "[1:a][2:a]amix=inputs=2:normalize=0,alimiter=limit=0.95,apad[mix]" : "[1:a]alimiter=limit=0.95,apad[mix]";
-            args += " -filter_complex " + Tools.Quote(filter) + " -map 0:v:0 -map \"[mix]\" -c:v libx264 -preset fast -crf 21 -c:a aac -t " + N(duration) + " -movflags +faststart " + Tools.Quote(output);
-            Tools.Run("ffmpeg", args, 600000);
-            string directory = Path.GetDirectoryName(output);
-            Tools.Run("ffmpeg", "-y -v error -i " + Tools.Quote(track) + " -af alimiter=limit=0.95,apad -t " + N(duration) + " -c:a aac -b:a 160k " + Tools.Quote(Path.Combine(directory, "result-voices.m4a")), 600000);
+            try { RenderOutputs(pack, track, output, duration, source.CopyVideo); }
+            catch (InvalidDataException)
+            {
+                // A compatible codec can still carry metadata a particular MP4 muxer
+                // rejects. Preserve the existing encoder path as a fallback.
+                if (!source.CopyVideo) throw;
+                RenderOutputs(pack, track, output, duration, false);
+            }
+        }
+        static void RenderOutputs(Pack pack, string track, string output, double duration, bool copyVideo)
+        {
             string movie = MovieAudio(pack), movieInput = String.IsNullOrEmpty(movie) ? "-f lavfi -i anullsrc=r=44100:cl=mono" : "-i " + Tools.Quote(movie);
-            Tools.Run("ffmpeg", "-y -v error " + movieInput + " -vn -af apad -t " + N(duration) + " -c:a aac -b:a 160k " + Tools.Quote(Path.Combine(directory, "result-movie.m4a")), 600000);
+            string filter = "[1:a]asplit=2[voice_mix][voice_track];[voice_track]alimiter=limit=0.95,apad[voices];";
+            if (!String.IsNullOrEmpty(pack.background))
+                filter += "[2:a]asplit=2[movie_mix][movie_track];[voice_mix][movie_mix]amix=inputs=2:normalize=0,alimiter=limit=0.95,apad[mix];[movie_track]apad[movie]";
+            else
+                filter += "[voice_mix]alimiter=limit=0.95,apad[mix];[2:a]apad[movie]";
+            string directory = Path.GetDirectoryName(output), length = N(duration);
+            string args = "-y -v error -i " + Tools.Quote(pack.video) + " -i " + Tools.Quote(track) + " " + movieInput + " -filter_complex " + Tools.Quote(filter);
+            // The picture is already prepared for the round. Copy its compressed
+            // packets and encode the mix plus both independent playback tracks once.
+            args += " -map 0:v:0 -map \"[mix]\" -c:v " + (copyVideo ? "copy" : "libx264 -preset fast -crf 21") + " -c:a aac -t " + length + " -movflags +faststart " + Tools.Quote(output);
+            args += " -map \"[voices]\" -vn -c:a aac -b:a 160k -t " + length + " " + Tools.Quote(Path.Combine(directory, "result-voices.m4a"));
+            args += " -map \"[movie]\" -vn -c:a aac -b:a 160k -t " + length + " " + Tools.Quote(Path.Combine(directory, "result-movie.m4a"));
+            Tools.Run("ffmpeg", args, 600000);
         }
     }
 }

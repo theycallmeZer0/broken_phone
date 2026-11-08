@@ -12,9 +12,10 @@ namespace BrokenPhone
         public static int LobbyPackRegression()
         {
             var report = new List<string>();
+            string fixtureRoot = Path.Combine(Paths.Cache, "lobby-steam-" + Guid.NewGuid().ToString("N"));
             try
             {
-                var demo = PackLibrary.Load(Path.Combine(Paths.Base, "Assets", "Demo"), "");
+                var demo = PriorityFixture(fixtureRoot, "source");
                 int steamCalls = 0, hostCalls = 0;
                 demo.id = "lobby-steam-test"; demo.workshopId = "9900999"; demo.title = "Lobby test " + Guid.NewGuid().ToString("N"); PackContent.Describe(demo, CancellationToken.None);
                 var remote = demo.PublicCopy();
@@ -63,7 +64,7 @@ namespace BrokenPhone
                 return 0;
             }
             catch (Exception error) { report.Add("FAIL: " + error); return 1; }
-            finally { File.WriteAllLines(Path.Combine(Paths.Base, "lobby-pack-test.txt"), report); }
+            finally { File.WriteAllLines(Path.Combine(Paths.Base, "lobby-pack-test.txt"), report); if (Directory.Exists(fixtureRoot)) Directory.Delete(fixtureRoot, true); }
         }
     }
 }

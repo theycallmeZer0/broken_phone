@@ -18,7 +18,12 @@ namespace BrokenPhone
         string LobbyData(ulong lobby, string key) { return SteamNative.Utf8(SteamNative.SteamAPI_ISteamMatchmaking_GetLobbyData(matchmaking, lobby, key)); }
         bool MatchesCode(ulong lobby, string code)
         {
-            return LobbyData(lobby, "bp_game") == "broken-phone" && LobbyData(lobby, "bp_protocol") == Playback.Protocol.ToString() && String.Equals(LobbyData(lobby, "bp_code"), code, StringComparison.OrdinalIgnoreCase);
+            return LobbyData(lobby, "bp_game") == "broken-phone" && String.Equals(LobbyData(lobby, "bp_code"), code, StringComparison.OrdinalIgnoreCase);
+        }
+        void RequireLobbyVersion(ulong lobby)
+        {
+            int protocol; Int32.TryParse(LobbyData(lobby, "bp_protocol"), out protocol);
+            GameVersion.RequireMatch(protocol, LobbyData(lobby, "bp_version"), LobbyData(lobby, "bp_build"));
         }
         public async Task<ulong> FindLobbyByCode(string code)
         {
@@ -30,7 +35,6 @@ namespace BrokenPhone
                 byte[] result = await Call(() =>
                 {
                     SteamNative.SteamAPI_ISteamMatchmaking_AddRequestLobbyListStringFilter(matchmaking, "bp_game", "broken-phone", 0);
-                    SteamNative.SteamAPI_ISteamMatchmaking_AddRequestLobbyListStringFilter(matchmaking, "bp_protocol", Playback.Protocol.ToString(), 0);
                     SteamNative.SteamAPI_ISteamMatchmaking_AddRequestLobbyListStringFilter(matchmaking, "bp_code", code, 0);
                     SteamNative.SteamAPI_ISteamMatchmaking_AddRequestLobbyListDistanceFilter(matchmaking, 3);
                     SteamNative.SteamAPI_ISteamMatchmaking_AddRequestLobbyListResultCountFilter(matchmaking, 10);
@@ -49,6 +53,11 @@ namespace BrokenPhone
                 }
                 if (matches.Count == 0) throw new IOException("Комната не найдена. Проверь код; возможно, игра уже началась или комната заполнена.");
                 if (matches.Count > 1) throw new IOException("Код совпал у нескольких комнат. Попроси ведущего создать новую комнату.");
+                lock (Gate)
+                {
+                    if (generation != roomGeneration || disposed) throw new OperationCanceledException();
+                    RequireLobbyVersion(matches[0]);
+                }
                 return matches[0];
             }
             finally { lobbySearch.Release(); }
@@ -63,7 +72,10 @@ namespace BrokenPhone
                 {
                     if (disposed) throw new OperationCanceledException();
                     string code = LobbyData(lobby, "bp_code");
-                    if (ValidCode(code) && MatchesCode(lobby, code)) return code.ToUpperInvariant();
+                    if (ValidCode(code) && MatchesCode(lobby, code) && !String.IsNullOrEmpty(LobbyData(lobby, "bp_protocol")))
+                    {
+                        RequireLobbyVersion(lobby); return code.ToUpperInvariant();
+                    }
                 }
                 await Task.Delay(100);
             }

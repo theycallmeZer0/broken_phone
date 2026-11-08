@@ -81,7 +81,7 @@ namespace BrokenPhone
                 cancellation.ThrowIfCancellationRequested(); string log = stdout.Result + stderr.Result;
                 File.WriteAllText(Path.Combine(Paths.Data, "steamcmd.log"), log);
                 bool restarted = log.IndexOf("Update complete, launching", StringComparison.OrdinalIgnoreCase) >= 0;
-                if ((process.ExitCode != 0 && !restarted) || log.IndexOf("ERROR!", StringComparison.OrdinalIgnoreCase) >= 0) throw new InvalidOperationException("Steam не разрешил загрузку. Войдите через «Настройки → Войти в Steam» в аккаунт с Dub Together.");
+                if ((process.ExitCode != 0 && !restarted) || log.IndexOf("ERROR!", StringComparison.OrdinalIgnoreCase) >= 0) throw new InvalidOperationException("Загрузчик не завершил работу. Проверь подключение; выбранный в лобби пак можно получить от участников.");
                 return log;
             }
         }

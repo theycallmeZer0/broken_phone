@@ -48,15 +48,45 @@ namespace BrokenPhone
                     if (Closed) return; Closed = true; Accepted.Set(); Incoming.CompleteAdding(); Socket.Close(); Bridge.tunnels.Remove(Key);
                 }
                 if (notify) try { Bridge.SendPacket(this, 3, new byte[0]); } catch { }
+                Bridge.ReleasePackConnection(Connection);
             }
             public void Dispose() { Close(false); }
         }
-        sealed class SteamConnection { public ulong Peer; public bool HostSide; }
+        sealed class SteamConnection { public ulong Peer; public bool HostSide, Pack; }
         readonly Dictionary<uint, SteamConnection> steamConnections = new Dictionary<uint, SteamConnection>();
         uint steamListener;
+        uint packSteamListener;
+        int packPort;
         readonly Dictionary<string, Tunnel> tunnels = new Dictionary<string, Tunnel>();
         readonly List<TcpListener> tunnelListeners = new List<TcpListener>();
         public int OpenTunnel(ulong peer)
+        {
+            return OpenTunnel(peer, 5);
+        }
+        public int OpenPackTunnel(ulong peer) { return OpenTunnel(peer, 6); }
+        public void ListenForPackPeers(int port)
+        {
+            lock (Gate)
+            {
+                if (!Available || LobbyId == 0 || port <= 0) return;
+                packPort = port;
+                if (packSteamListener == 0) packSteamListener = SteamNative.SteamAPI_ISteamNetworkingSockets_CreateListenSocketP2P(networking, 6, 0, IntPtr.Zero);
+                if (packSteamListener == 0) throw new IOException("Steam не открыл канал помощи с загрузкой пака.");
+            }
+        }
+        void ReleasePackConnection(uint connection)
+        {
+            lock (Gate)
+            {
+                SteamConnection info;
+                if (steamConnections.TryGetValue(connection, out info) && info.Pack && !tunnels.Values.Any(t => t.Connection == connection))
+                {
+                    steamConnections.Remove(connection);
+                    if (Available) SteamNative.SteamAPI_ISteamNetworkingSockets_CloseConnection(networking, connection, 1000, "Pack transfer closed", false);
+                }
+            }
+        }
+        int OpenTunnel(ulong peer, int virtualPort)
         {
             lock (Gate)
             {
@@ -69,9 +99,9 @@ namespace BrokenPhone
                         var socket = listener.AcceptTcpClient(); socket.NoDelay = true; socket.SendTimeout = 15000;
                         var tunnel = new Tunnel { Bridge = this, Socket = socket, Peer = peer, Id = Guid.NewGuid() };
                         lock (Gate) { if (disposed || generation != roomGeneration || !AllowedPeer(peer)) { socket.Close(); return; } var identity = new SteamNative.Identity { Type = 16, Size = 8, SteamId = peer };
-                            tunnel.Connection = SteamNative.SteamAPI_ISteamNetworkingSockets_ConnectP2P(networking, ref identity, 5, 0, IntPtr.Zero);
+                            tunnel.Connection = SteamNative.SteamAPI_ISteamNetworkingSockets_ConnectP2P(networking, ref identity, virtualPort, 0, IntPtr.Zero);
                             if (tunnel.Connection == 0) { socket.Close(); return; }
-                            steamConnections.Add(tunnel.Connection, new SteamConnection { Peer = peer }); tunnels.Add(tunnel.Key, tunnel); }
+                            steamConnections.Add(tunnel.Connection, new SteamConnection { Peer = peer, Pack = virtualPort == 6 }); tunnels.Add(tunnel.Key, tunnel); }
                         tunnel.Run(); SendPacket(tunnel, 1, new byte[0]);
                     }
                     catch (Exception) { }
@@ -105,9 +135,10 @@ namespace BrokenPhone
             ulong peer = SteamNative.SteamAPI_SteamNetworkingIdentity_GetSteamID64(info);
             if (state == 1 && listener != 0)
             {
-                if (!Hosting || listener != steamListener || !AllowedPeer(peer) || steamConnections.Count >= 16) { SteamNative.SteamAPI_ISteamNetworkingSockets_CloseConnection(networking, connection, 1000, "Not a lobby member", false); return; }
+                bool packChannel = listener == packSteamListener && packSteamListener != 0;
+                if ((!packChannel && (!Hosting || listener != steamListener)) || !AllowedPeer(peer) || steamConnections.Count >= 64) { SteamNative.SteamAPI_ISteamNetworkingSockets_CloseConnection(networking, connection, 1000, "Not a lobby member", false); return; }
                 if (SteamNative.SteamAPI_ISteamNetworkingSockets_AcceptConnection(networking, connection) != 1) return;
-                steamConnections[connection] = new SteamConnection { Peer = peer, HostSide = true }; sessionRequests++;
+                steamConnections[connection] = new SteamConnection { Peer = peer, HostSide = true, Pack = packChannel }; sessionRequests++;
             }
             else if (state == 4 || state == 5)
             {
@@ -141,9 +172,11 @@ namespace BrokenPhone
             var idBytes = new byte[16]; Buffer.BlockCopy(packet, 5, idBytes, 0, 16); Guid id = new Guid(idBytes); string key = peer + ":" + id + ":" + (channel == 0); Tunnel tunnel;
             if (packet[4] == 1)
             {
-                if (channel != 0 || !Hosting || hostPort == 0 || tunnels.ContainsKey(key) || tunnels.Values.Count(t => t.HostSide) >= 7) return;
+                SteamConnection route; if (!steamConnections.TryGetValue(connection, out route)) return;
+                int port = route.Pack ? packPort : hostPort;
+                if (channel != 0 || !route.Pack && !Hosting || port == 0 || tunnels.ContainsKey(key) || tunnels.Values.Count(t => t.HostSide) >= (route.Pack ? 56 : 7)) return;
                 var socket = new TcpClient(); socket.NoDelay = true; socket.SendTimeout = 15000;
-                tunnel = new Tunnel { Bridge = this, Socket = socket, Id = id, Peer = peer, HostSide = true, Connection = connection }; tunnels.Add(key, tunnel); int port = hostPort;
+                tunnel = new Tunnel { Bridge = this, Socket = socket, Id = id, Peer = peer, HostSide = true, Connection = connection }; tunnels.Add(key, tunnel);
                 Background(() =>
                 {
                     try { var localConnect = socket.ConnectAsync("127.0.0.1", port); if (!localConnect.Wait(5000)) throw new IOException("Нет подключения к ведущему."); tunnel.Accepted.Set(); SendPacket(tunnel, 4, new byte[0]); tunnel.Run(); }
@@ -166,8 +199,8 @@ namespace BrokenPhone
             {
                 foreach (var listener in tunnelListeners.ToArray()) listener.Stop(); tunnelListeners.Clear();
                 foreach (var tunnel in tunnels.Values.ToArray()) tunnel.Close(false); tunnels.Clear();
-                if (Available) { foreach (uint connection in steamConnections.Keys.ToArray()) SteamNative.SteamAPI_ISteamNetworkingSockets_CloseConnection(networking, connection, 1000, "Room closed", false); if (steamListener != 0) SteamNative.SteamAPI_ISteamNetworkingSockets_CloseListenSocket(networking, steamListener); }
-                steamConnections.Clear(); steamListener = 0;
+                if (Available) { foreach (uint connection in steamConnections.Keys.ToArray()) SteamNative.SteamAPI_ISteamNetworkingSockets_CloseConnection(networking, connection, 1000, "Room closed", false); if (steamListener != 0) SteamNative.SteamAPI_ISteamNetworkingSockets_CloseListenSocket(networking, steamListener); if (packSteamListener != 0) SteamNative.SteamAPI_ISteamNetworkingSockets_CloseListenSocket(networking, packSteamListener); }
+                steamConnections.Clear(); steamListener = packSteamListener = 0; packPort = 0;
             }
         }
     }

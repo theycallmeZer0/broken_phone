@@ -42,7 +42,7 @@ namespace BrokenPhone
             controls.Progress = new ProgressBar { Minimum = 0, Maximum = 1, Height = 6, Visibility = Visibility.Collapsed, Margin = new Thickness(0, 0, 0, 5) }; body.Children.Add(controls.Progress);
             controls.Status = new TextBlock { FontSize = 10, Height = 17, Foreground = Brush("#CFB3D9"), TextTrimming = TextTrimming.CharacterEllipsis }; body.Children.Add(controls.Status);
             var row = new StackPanel { Orientation = Orientation.Horizontal };
-            controls.Download = SmallButton("↓ Загрузить", delegate { var pack = InstalledItem(item.Id); if (pack == null) QueuePack(item); else SelectPack(pack); }); controls.Download.Background = Brush("#C5B4D2"); controls.Download.Foreground = Brush("#2A1D2B"); row.Children.Add(controls.Download);
+            controls.Download = SmallButton("Выбрать в лобби", delegate { if (IsHost) SelectWorkshopPack(item); else if (InstalledItem(item.Id) == null) QueuePack(item); }); controls.Download.Background = Brush("#C5B4D2"); controls.Download.Foreground = Brush("#2A1D2B"); row.Children.Add(controls.Download);
             controls.Cancel = SmallButton("Отмена", delegate { packDownloads.Cancel(item.Id); }); controls.Cancel.Visibility = Visibility.Collapsed; controls.Cancel.Margin = new Thickness(7, 0, 0, 0); row.Children.Add(controls.Cancel);
             var page = SmallButton("Страница ↗", delegate { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(item.Url) { UseShellExecute = true }); }); page.Margin = new Thickness(7, 0, 0, 0); row.Children.Add(page);
             body.Children.Add(row); packControls[item.Id] = controls; ((Border)body.Parent).Tag = "download-card"; UpdateWorkshopLayout(); RenderDownloadJobs();
@@ -60,8 +60,9 @@ namespace BrokenPhone
             foreach (var entry in packControls)
             {
                 var c = entry.Value; var job = jobs.FirstOrDefault(j => j.Item.Id == entry.Key); var local = InstalledItem(entry.Key); bool busy = job != null && job.Busy;
-                c.Download.IsEnabled = !busy && (local == null || IsHost && state != null && state.phase == "lobby");
-                c.Download.Content = busy ? job.State == "queued" ? "В очереди…" : "Загружается…" : local != null ? IsHost ? "Выбрать в лобби" : "✓ Загружен" : job != null && job.State == "error" ? "Повторить" : "↓ Загрузить";
+                bool canSelect = IsHost && state != null && state.phase == "lobby";
+                c.Download.IsEnabled = canSelect || !IsHost && !busy && local == null;
+                c.Download.Content = canSelect ? "Выбрать в лобби" : busy ? job.State == "queued" ? "В очереди…" : "Загружается…" : local != null ? "✓ Загружен" : job != null && job.State == "error" ? "Повторить" : "↓ Загрузить";
                 c.Select.IsEnabled = !busy && local == null; if (!c.Select.IsEnabled) c.Select.IsChecked = false;
                 c.Cancel.Visibility = busy ? Visibility.Visible : Visibility.Collapsed;
                 c.Progress.Visibility = busy ? Visibility.Visible : Visibility.Collapsed;

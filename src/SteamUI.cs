@@ -119,6 +119,9 @@ namespace BrokenPhone
         {
             if (!steam.Available) throw new IOException("Запусти Steam и подключи его в настройках игры.");
             if (state != null && state.phase != "lobby") throw new IOException("Дождись завершения текущего раунда.");
+            await steam.CodeForLobby(lobby);
+            if (disposed) return;
+            if (state != null && state.phase != "lobby") throw new IOException("Дождись завершения текущего раунда.");
             Disconnect(); Exception failure = null;
             try
             {
@@ -142,7 +145,7 @@ namespace BrokenPhone
             Theme.ApplyWindow(popup);
             var panel = new StackPanel { Margin = new Thickness(22) }; popup.Content = new ScrollViewer { Content = panel, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
             panel.Children.Add(new TextBlock { Text = "Друзья в Steam", FontSize = 25, FontWeight = FontWeights.Bold, Margin = new Thickness(0, 0, 0, 12) });
-            panel.Children.Add(new TextBlock { Text = "Друг запускает Broken Phone 0.19.1, затем принимает приглашение. Нужен запущенный Steam; VPN не требуется.", Foreground = Brush("#BDB2CA"), TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 14) });
+            panel.Children.Add(new TextBlock { Text = "Друг запускает Broken Phone 0.19.2, затем принимает приглашение. Нужен запущенный Steam; VPN не требуется.", Foreground = Brush("#BDB2CA"), TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 14) });
             var copy = SmallButton("Копировать код комнаты", Invite); copy.Margin = new Thickness(0, 0, 0, 14); panel.Children.Add(copy);
             var friends = steam.Friends();
             if (friends.Count == 0) panel.Children.Add(new TextBlock { Text = "Сейчас нет друзей онлайн. Можно отправить скопированную ссылку.", TextWrapping = TextWrapping.Wrap, Foreground = Brush("#BDB2CA") });

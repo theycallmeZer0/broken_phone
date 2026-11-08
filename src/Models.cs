@@ -43,6 +43,7 @@ namespace BrokenPhone
 
     public sealed class Pack
     {
+        public bool pendingDownload { get; set; }
         public bool isTestPack { get; set; }
         public bool Selected { get { return lines.Count > 0; } }
         public string id { get; set; }
@@ -141,6 +142,8 @@ namespace BrokenPhone
     public sealed class Message
     {
         internal int wireBytes;
+        public string version { get; set; }
+        public string build { get; set; }
         public string kind { get; set; }
         public ulong steamId { get; set; }
         public string id { get; set; }
@@ -160,5 +163,7 @@ namespace BrokenPhone
         public long totalBytes { get; set; }
         public Pack pack { get; set; }
         public RoomState state { get; set; }
+        public PackTransferPlan packPlan { get; set; }
+        public PackPeerEndpoint packPeer { get; set; }
     }
 }

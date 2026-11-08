@@ -16,14 +16,13 @@ namespace BrokenPhone
             searchTimer.Tick += async delegate { searchTimer.Stop(); if (currentPage == "Workshop") await Guard(Search); };
             B("MyPacksFolderButton").Click += async delegate
             {
-                showMyPacks = !showMyPacks; refreshMyPacks = showMyPacks; settings.LocalPacks = false; workshopPage = 1; RenderPackSource(); await Guard(Search);
+                showMyPacks = !showMyPacks; refreshMyPacks = showMyPacks; workshopPage = 1; RenderPackSource(); await Guard(Search);
             };
         }
         void SchedulePackSearch()
         {
             if (currentPage != "Workshop" || disposed) return;
             workshopPage = 1; ++searchGeneration;
-            if (folderScan != null) folderScan.Cancel();
             searchTimer.Stop(); searchTimer.Start();
         }
     }

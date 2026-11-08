@@ -5,7 +5,7 @@ namespace BrokenPhone
 {
     public static class Playback
     {
-        public const int Protocol = 14;
+        public const int Protocol = 18;
         public const int StartLeadMilliseconds = 1200;
         public static bool EveryoneReady(RoomState state) { return state.players.Count > 0 && state.players.All(player => state.resultReady.Contains(player.id)); }
         public static long Now { get { return DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(); } }

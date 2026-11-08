@@ -33,7 +33,7 @@ namespace BrokenPhone
         }
     }
 
-    public sealed class RoomServer : IDisposable
+    public sealed partial class RoomServer : IDisposable
     {
         sealed class Peer
         {
@@ -58,6 +58,7 @@ namespace BrokenPhone
             pack = initialPack; state.pack = pack.PublicCopy(); state.code = Guid.NewGuid().ToString("N").Substring(0, 6).ToUpperInvariant();
             RoleCasting.NewPack(state);
             listener = new TcpListener(IPAddress.Any, port); listener.Start(16);
+            try { StartPackSharing(); } catch { listener.Stop(); throw; }
             Task.Run((Action)AcceptLoop);
         }
         public static string Address()
@@ -82,7 +83,7 @@ namespace BrokenPhone
                 lock (gate)
                 {
                     if (hello.kind != "join" || !String.Equals(hello.code, state.code, StringComparison.OrdinalIgnoreCase)) throw new InvalidOperationException("Неверный код комнаты.");
-                    if (hello.protocol != Playback.Protocol) throw new InvalidOperationException("Версии игры различаются. Установите одинаковую версию игры на всех компьютерах.");
+                    GameVersion.RequireMatch(hello.protocol, hello.version, hello.build);
                     if (state.phase != "lobby" || state.players.Count >= 8) throw new InvalidOperationException("Комната заполнена или раунд уже начался.");
                     bool isHost = hello.secret == Secret && IPAddress.IsLoopback(((IPEndPoint)socket.Client.RemoteEndPoint).Address);
                     if (!isHost && !state.players.Any(p => p.host)) throw new InvalidOperationException("Ведущий ещё не подключился.");
@@ -90,7 +91,7 @@ namespace BrokenPhone
                     peers.Add(peer); joined = true;
                     state.players.Add(new Player { id = peer.Id, owner = peer.Id, steamId = hello.steamId, name = Clean(hello.text, 64, "Игрок"), host = isHost, ready = false, color = state.players.Count % 8 });
                     RoleCasting.Refresh(state);
-                    peer.Send(new Message { kind = "welcome", id = peer.Id });
+                    peer.Send(new Message { kind = "welcome", id = peer.Id, protocol = Playback.Protocol, version = GameVersion.Version, build = GameVersion.Build });
                     Chat("Студия", state.players.Last().name + " в гримёрке"); Broadcast();
                 }
                 socket.ReceiveTimeout = 0;
@@ -111,6 +112,8 @@ namespace BrokenPhone
                         bool hostLeft = leavingPlayer != null && leavingPlayer.host;
                         string leavingName = leavingPlayer == null ? "Игрок" : leavingPlayer.name;
                         peers.Remove(peer); state.players.RemoveAll(p => p.owner == peer.Id);
+                        packPeers.Remove(peer.Id);
+                        RemoveWorkshopRelayPeer(peer);
                         RoleCasting.Refresh(state);
                         state.resultReady = state.resultReady.Where(id => state.players.Any(p => p.id == id)).ToArray();
                         if (!hostLeft && (state.phase == "rendering" || state.phase == "result"))
@@ -159,6 +162,9 @@ namespace BrokenPhone
                 lock (gate)
                 {
                     var player = state.players.First(p => p.id == peer.Id);
+                    if (ProcessWorkshopRelay(peer, player, message)) return;
+                    if (ProcessWorkshopSelection(peer, player, message)) return;
+                    if (ProcessPackSharing(peer, message)) return;
                     switch (message.kind)
                     {
                         case "asset_cancel": CancellationTokenSource transfer; if (peer.Transfers.TryGetValue(message.id ?? "", out transfer)) transfer.Cancel(); return;
@@ -191,16 +197,18 @@ namespace BrokenPhone
                             break;
                         case "pack":
                             Host(player); Lobby();
+                            if (!String.IsNullOrEmpty(message.code) && (!pack.pendingDownload || message.code != pack.contentKey || message.pack == null || message.pack.workshopId != pack.workshopId)) return;
                             if (message.pack == null || !File.Exists(message.pack.video)) throw new InvalidDataException("Файл выбранного пака недоступен.");
                             string previousPackKey = pack.contentKey;
                             pack = PackLibrary.Load(String.IsNullOrEmpty(message.pack.root) ? Path.GetDirectoryName(message.pack.video) : message.pack.root, message.pack.workshopId); pack.preview = message.pack.preview; state.pack = pack.PublicCopy(); packRevision++;
+                            ResetPackSharing();
                             RoleCasting.NewPack(state);
                             foreach (var member in state.players) { member.prepared = false; if (previousPackKey != pack.contentKey) { member.downloadProgress = 0; member.loadStatus = "Ожидаем загрузку"; } }
                             Chat("Студия", "Выбран пак «" + pack.title + "»"); break;
                         case "pack_download_progress":
                         case "pack_download_ready":
                         case "pack_download_failed":
-                            if (!pack.Selected || message.id != pack.contentKey || state.phase != "lobby" && state.phase != "casting" && state.phase != "loading") return;
+                            if ((!pack.Selected && !pack.pendingDownload) || message.id != pack.contentKey || state.phase != "lobby" && state.phase != "casting" && state.phase != "loading") return;
                             if (message.kind == "pack_download_ready") { player.downloadProgress = 1; player.loadStatus = "Пак загружен"; }
                             else if (message.kind == "pack_download_failed") { player.downloadProgress = 0; player.loadStatus = "Ошибка загрузки: " + Clean(message.text, 120, "Повторите попытку"); }
                             else if (!player.prepared && !Double.IsNaN(message.position) && !Double.IsInfinity(message.position)) { player.downloadProgress = Math.Max(0, Math.Min(1, message.position)); player.loadStatus = Clean(message.text, 120, "Загрузка"); }
@@ -341,11 +349,11 @@ namespace BrokenPhone
         }
         public void Dispose()
         {
-            disposed = true; listener.Stop(); lock (gate) foreach (var peer in peers.ToArray()) peer.Socket.Close();
+            disposed = true; listener.Stop(); if (packShareServer != null) packShareServer.Dispose(); lock (gate) foreach (var peer in peers.ToArray()) peer.Socket.Close();
         }
     }
 
-    public sealed class RoomClient : IDisposable
+    public sealed partial class RoomClient : IDisposable
     {
         internal int fullPackUpdates, lightStateUpdates;
         internal long stateBytes;
@@ -369,10 +377,22 @@ namespace BrokenPhone
         public event Action<string> Disconnected;
         public void Connect(string host, int port, string code, string name, string secret, ulong steamId = 0)
         {
-            var pending = socket.ConnectAsync(host, port); if (!pending.Wait(7000)) throw new TimeoutException("Комната не отвечает. Проверьте адрес и подключение.");
-            socket.NoDelay = true; socket.SendTimeout = 15000; stream = socket.GetStream();
-            Send(new Message { kind = "join", code = code, text = name, secret = secret, protocol = Playback.Protocol, steamId = steamId }); Task.Run((Action)ReadLoop);
-            clock = new Timer(delegate { try { if (!disposed) Send(new Message { kind = "ping", clientTime = Playback.Now }); } catch { } }, null, 200, 3000);
+            try
+            {
+                var pending = socket.ConnectAsync(host, port); if (!pending.Wait(7000)) throw new TimeoutException("Комната не отвечает. Проверьте адрес и подключение.");
+                socket.NoDelay = true; socket.SendTimeout = 15000; socket.ReceiveTimeout = 15000; stream = socket.GetStream();
+                StartPackSharing(host);
+                Send(new Message { kind = "join", code = code, text = name, secret = secret, protocol = Playback.Protocol, version = GameVersion.Version, build = GameVersion.Build, steamId = steamId });
+                var welcome = Wire.Read(stream);
+                if (welcome.kind == "error") throw new InvalidOperationException(welcome.text);
+                if (welcome.kind != "welcome" || String.IsNullOrEmpty(welcome.id)) throw new InvalidDataException("Комната не подтвердила версию игры. Установите одинаковую сборку на всех компьютерах.");
+                GameVersion.RequireMatch(welcome.protocol, welcome.version, welcome.build);
+                Id = welcome.id; socket.ReceiveTimeout = 0;
+                var handler = Received; if (handler != null) handler(welcome);
+                Task.Run((Action)ReadLoop);
+                clock = new Timer(delegate { try { if (!disposed) Send(new Message { kind = "ping", clientTime = Playback.Now }); } catch { } }, null, 200, 3000);
+            }
+            catch { Dispose(); throw; }
         }
         public void Send(Message message) { if (disposed || stream == null) throw new IOException("Нет подключения к комнате."); Wire.Send(stream, sendGate, message); }
         void ReadLoop()
@@ -383,12 +403,12 @@ namespace BrokenPhone
                 while (!disposed)
                 {
                     Message message = Wire.Read(stream);
-                    if (message.kind == "welcome") Id = message.id;
                     if (message.state != null)
                     {
                         if (message.state.pack != null) { fullPackUpdates++; knownPack = message.state.pack; }
                         else { lightStateUpdates++; if (knownPack == null) throw new InvalidDataException("Не получены данные выбранного пака."); message.state.pack = knownPack; }
                         Interlocked.Add(ref stateBytes, message.wireBytes);
+                        SelectPackSharing(knownPack);
                     }
                     if (message.kind == "pong")
                     {
@@ -397,6 +417,8 @@ namespace BrokenPhone
                         continue;
                     }
                     if (message.state != null && !clockSynced) Interlocked.Exchange(ref clockOffset, message.state.serverTime - Playback.Now);
+                    if (message.kind == "pack_sources") { ReceivePackSources(message); continue; }
+                    if (ProcessWorkshopRelay(message)) continue;
                     if (message.kind.StartsWith("asset_")) { ReceiveAsset(message); continue; }
                     if (message.kind == "kicked" || (message.kind == "error" && Id == null)) reason = message.text;
                     var handler = Received; if (handler != null) handler(message);
@@ -405,8 +427,11 @@ namespace BrokenPhone
             catch (Exception error) { if (!(error is EndOfStreamException)) reason += " " + error.Message; }
             finally
             {
+                socket.Close();
+                CloseWorkshopRelay(reason);
                 foreach (var pair in downloads) { lock (pair.Value.Gate) { if (pair.Value.Stream != null) pair.Value.Stream.Dispose(); } pair.Value.Completion.TrySetException(new IOException(reason)); }
                 downloads.Clear();
+                foreach (var request in packRequests.Values) request.TrySetException(new IOException(reason)); packRequests.Clear();
                 if (!disposed) { var handler = Disconnected; if (handler != null) handler(reason); }
             }
         }
@@ -452,6 +477,6 @@ namespace BrokenPhone
             }
             finally { Download ignored; downloads.TryRemove(id, out ignored); lock (pending.Gate) { if (pending.Stream != null) pending.Stream.Dispose(); } if (!pending.Completion.Task.IsCompleted) try { Send(new Message { kind = "asset_cancel", id = id }); } catch (IOException) { } if (!pending.Completion.Task.IsCompleted && File.Exists(pending.Path)) try { File.Delete(pending.Path); } catch (IOException) { } }
         }
-        public void Dispose() { disposed = true; if (clock != null) clock.Dispose(); socket.Close(); }
+        public void Dispose() { disposed = true; CloseWorkshopRelay("Соединение закрыто."); if (clock != null) clock.Dispose(); if (packShareServer != null) packShareServer.Dispose(); socket.Close(); }
     }
 }

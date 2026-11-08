@@ -129,7 +129,7 @@ namespace BrokenPhone
         bool AllowedPeer(ulong id)
         {
             if (LobbyId == 0 || id == 0) return false;
-            if (!Hosting) return id == OwnerId;
+            if (id == OwnerId) return true;
             int count = SteamNative.SteamAPI_ISteamMatchmaking_GetNumLobbyMembers(matchmaking, LobbyId);
             for (int i = 0; i < count; i++) if (SteamNative.SteamAPI_ISteamMatchmaking_GetLobbyMemberByIndex(matchmaking, LobbyId, i) == id) return true;
             return false;
@@ -146,13 +146,14 @@ namespace BrokenPhone
                 LobbyId = lobby; OwnerId = UserId; Code = code; hostPort = port; Hosting = true;
                 steamListener = SteamNative.SteamAPI_ISteamNetworkingSockets_CreateListenSocketP2P(networking, 5, 0, IntPtr.Zero);
                 if (steamListener == 0) { LeaveRoom(); throw new IOException("Steam не открыл сетевой канал комнаты."); }
-                if (!SetData("bp_game", "broken-phone") || !SetData("bp_protocol", Playback.Protocol.ToString()) || !SetData("bp_code", code)) { LeaveRoom(); throw new IOException("Не удалось опубликовать данные комнаты Steam."); }
+                if (!SetData("bp_protocol", Playback.Protocol.ToString()) || !SetData("bp_version", GameVersion.Version) || !SetData("bp_build", GameVersion.Build) || !SetData("bp_code", code) || !SetData("bp_game", "broken-phone")) { LeaveRoom(); throw new IOException("Не удалось опубликовать данные комнаты Steam."); }
             }
         }
         bool SetData(string key, string value) { return SteamNative.SteamAPI_ISteamMatchmaking_SetLobbyData(matchmaking, LobbyId, key, value); }
         string GetData(string key) { return SteamNative.Utf8(SteamNative.SteamAPI_ISteamMatchmaking_GetLobbyData(matchmaking, LobbyId, key)); }
         public async Task<int> JoinRoom(ulong lobby)
         {
+            await CodeForLobby(lobby);
             LeaveRoom(); int generation = roomGeneration;
             byte[] result = await Call(() => SteamNative.SteamAPI_ISteamMatchmaking_JoinLobby(matchmaking, lobby), 504);
             if (BitConverter.ToUInt32(result, 16) != 1) throw new IOException("Комната Steam недоступна или заполнена.");
@@ -160,7 +161,9 @@ namespace BrokenPhone
             {
                 if (generation != roomGeneration) { SteamNative.SteamAPI_ISteamMatchmaking_LeaveLobby(matchmaking, lobby); throw new OperationCanceledException(); }
                 LobbyId = lobby;
-                if (GetData("bp_game") != "broken-phone" || GetData("bp_protocol") != Playback.Protocol.ToString()) { LeaveRoom(); throw new IOException("Это другая игра или другая версия Broken Phone."); }
+                if (GetData("bp_game") != "broken-phone") { LeaveRoom(); throw new IOException("Это лобби другой игры."); }
+                try { RequireLobbyVersion(lobby); }
+                catch (InvalidOperationException) { LeaveRoom(); throw; }
                 OwnerId = SteamNative.SteamAPI_ISteamMatchmaking_GetLobbyOwner(matchmaking, lobby); Code = GetData("bp_code");
                 if (Code.Length != 6 || OwnerId == UserId) { LeaveRoom(); throw new IOException("Нельзя подключиться к собственной или повреждённой комнате."); }
                 Hosting = false; return OpenTunnel(OwnerId);
