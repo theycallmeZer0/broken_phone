@@ -48,6 +48,7 @@ namespace BrokenPhone
             }
             if (args.Contains("--lobby-pack-test")) return SelfTests.LobbyPackRegression();
             if (args.Contains("--version-test")) return SelfTests.VersionRegression();
+            if (args.Contains("--transfer-performance-test")) return SelfTests.TransferPerformanceRegression();
             if (args.Contains("--download-priority-test")) return SelfTests.DownloadPriorityRegression();
             if (args.Contains("--workshop-relay-test")) return SelfTests.WorkshopRelayRegression();
             if (args.Contains("--render-speed-test")) return SelfTests.RenderSpeedRegression();
@@ -98,7 +99,7 @@ namespace BrokenPhone
             app.DispatcherUnhandledException += delegate(object sender, DispatcherUnhandledExceptionEventArgs e)
             {
                 File.AppendAllText(System.IO.Path.Combine(Paths.Data, "error.log"), DateTime.Now + " " + e.Exception + Environment.NewLine);
-                if (args.Contains("--download-priority-ui-test") || args.Contains("--download-continuity-ui-test") || args.Contains("--workshop-selection-ui-test") || args.Contains("--screening-test") || (args.Contains("--steam-ui-test") || args.Contains("--steam-overlay-test")) || args.Contains("--end-test") || args.Contains("--ui-smoke") || args.Contains("--microphone-ui-test") || (args.Contains("--folder-packs-ui-test") || args.Contains("--pack-views-ui-test")) || args.Contains("--roles-ui-test") || (args.Contains("--presentation-ui-test") || (args.Contains("--empty-lobby-ui-test") || args.Contains("--display-ui-test") || (args.Contains("--audio-output-ui-test") || args.Contains("--join-ui-test"))) || args.Contains("--turn-navigation-ui-test") || args.Contains("--playback-sync-test"))) { File.WriteAllText(System.IO.Path.Combine(Paths.Base, "ui-error.txt"), e.Exception.ToString()); e.Handled = true; app.Shutdown(1); return; }
+                if (args.Contains("--lobby-rendering-ui-test") || args.Contains("--download-priority-ui-test") || args.Contains("--download-continuity-ui-test") || args.Contains("--workshop-selection-ui-test") || args.Contains("--screening-test") || (args.Contains("--steam-ui-test") || args.Contains("--steam-overlay-test")) || args.Contains("--end-test") || args.Contains("--ui-smoke") || args.Contains("--microphone-ui-test") || (args.Contains("--folder-packs-ui-test") || args.Contains("--pack-views-ui-test")) || args.Contains("--roles-ui-test") || (args.Contains("--presentation-ui-test") || (args.Contains("--empty-lobby-ui-test") || args.Contains("--display-ui-test") || (args.Contains("--audio-output-ui-test") || args.Contains("--join-ui-test"))) || args.Contains("--turn-navigation-ui-test") || args.Contains("--playback-sync-test"))) { File.WriteAllText(System.IO.Path.Combine(Paths.Base, "ui-error.txt"), e.Exception.ToString()); e.Handled = true; app.Shutdown(1); return; }
                 MessageBox.Show(e.Exception.Message, "Broken Phone"); e.Handled = true;
             };
             Window window;
@@ -107,6 +108,7 @@ namespace BrokenPhone
             window.Loaded += async delegate
             {
                 await controller.Start();
+                if (args.Contains("--lobby-rendering-ui-test")) await controller.LobbyRenderingSmoke();
                 if (args.Contains("--workshop-selection-ui-test")) await controller.WorkshopSelectionSmoke();
                 if (args.Contains("--download-priority-ui-test")) await controller.DownloadPrioritySmoke();
                 if (args.Contains("--download-continuity-ui-test")) await controller.DownloadContinuitySmoke();
@@ -135,7 +137,7 @@ namespace BrokenPhone
                 if (args.Contains("--role-pack")) await controller.PackScreen(args[Array.IndexOf(args, "--role-pack") + 1], true);
             };
             window.Closed += delegate { controller.Dispose(); };
-            if (args.Contains("--screenshot") || (args.Contains("--presentation-ui-test") || (args.Contains("--empty-lobby-ui-test") || args.Contains("--display-ui-test") || (args.Contains("--audio-output-ui-test") || args.Contains("--join-ui-test"))) || args.Contains("--turn-navigation-ui-test") || args.Contains("--playback-sync-test")) || args.Contains("--roles-ui-test") || args.Contains("--role-pack") || args.Contains("--microphone-ui-test") || args.Contains("--input-ui-test") || (args.Contains("--folder-packs-ui-test") || args.Contains("--pack-views-ui-test")) || args.Contains("--pack-downloads-ui-test") || args.Contains("--ui-smoke") || args.Contains("--screening-test") || (args.Contains("--steam-ui-test") || args.Contains("--steam-overlay-test")) || args.Contains("--end-test") || args.Contains("--workshop-screen") || args.Contains("--settings-screen") || args.Contains("--lobby-pack"))
+            if (args.Contains("--lobby-rendering-ui-test") || args.Contains("--screenshot") || (args.Contains("--presentation-ui-test") || (args.Contains("--empty-lobby-ui-test") || args.Contains("--display-ui-test") || (args.Contains("--audio-output-ui-test") || args.Contains("--join-ui-test"))) || args.Contains("--turn-navigation-ui-test") || args.Contains("--playback-sync-test")) || args.Contains("--roles-ui-test") || args.Contains("--role-pack") || args.Contains("--microphone-ui-test") || args.Contains("--input-ui-test") || (args.Contains("--folder-packs-ui-test") || args.Contains("--pack-views-ui-test")) || args.Contains("--pack-downloads-ui-test") || args.Contains("--ui-smoke") || args.Contains("--screening-test") || (args.Contains("--steam-ui-test") || args.Contains("--steam-overlay-test")) || args.Contains("--end-test") || args.Contains("--workshop-screen") || args.Contains("--settings-screen") || args.Contains("--lobby-pack"))
             {
                 window.ShowInTaskbar = false; window.WindowStartupLocation = WindowStartupLocation.Manual; window.Left = -10000;
             }
@@ -473,31 +475,7 @@ namespace BrokenPhone
                 C<FrameworkElement>("PosterArt").Visibility = image.Source == null ? Visibility.Visible : Visibility.Collapsed;
                 C<Border>("PackInfoShade").Visibility = image.Source == null ? Visibility.Collapsed : Visibility.Visible;
             }
-            var players = C<StackPanel>("PlayersList"); players.Children.Clear();
-            for (int i = 0; i < 8; i++)
-            {
-                var row = new Grid { Height = 54, Margin = new Thickness(0, 0, 0, 4) };
-                row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(48) }); row.ColumnDefinitions.Add(new ColumnDefinition()); row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(44) });
-                if (i < state.players.Count)
-                {
-                    var p = state.players[i];
-                    var avatar = Avatar(p, 44); avatar.VerticalAlignment = VerticalAlignment.Center; row.Children.Add(avatar);
-                    var label = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0, 0, 0) }; Grid.SetColumn(label, 1);
-                    label.Children.Add(new TextBlock { Text = p.name + (p.id == client.Id ? " · ты" : ""), FontSize = 16, FontWeight = FontWeights.Bold, TextTrimming = TextTrimming.CharacterEllipsis, ToolTip = p.name });
-                    label.Children.Add(new TextBlock { Text = (p.host ? "Ведущий" : "По сети") + ((state.pack.Selected || pending) && !String.IsNullOrEmpty(p.loadStatus) ? " · " + (p.downloadProgress > 0 && p.downloadProgress < 1 ? (p.downloadProgress * 100).ToString("0") + "% · " : "") + p.loadStatus : ""), FontSize = 9, Foreground = Brush("#858478"), TextTrimming = TextTrimming.CharacterEllipsis, ToolTip = p.loadStatus }); row.Children.Add(label);
-                    var actions = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Center }; Grid.SetColumn(actions, 2);
-                    actions.Children.Add(new TextBlock { Text = p.ready ? "✓" : "·", Foreground = Brush(p.ready ? "#638352" : "#A19B8E"), FontSize = 19, VerticalAlignment = VerticalAlignment.Center });
-                    if (IsHost && !p.host) { var kick = SmallButton("×", delegate { Send(new Message { kind = "kick", id = p.id }); }); kick.Padding = new Thickness(5, 0, 0, 0); kick.BorderThickness = new Thickness(0); actions.Children.Add(kick); }
-                    row.Children.Add(actions);
-                }
-                else
-                {
-                    row.Height = 40;
-                    var empty = new Border { Width = 31, Height = 31, CornerRadius = new CornerRadius(10), BorderBrush = Brush("#D8D2C6"), BorderThickness = new Thickness(1), Child = new TextBlock { Text = "+", FontSize = 17, Foreground = Brush("#C2BCB0"), HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center } }; row.Children.Add(empty);
-                    var text = new TextBlock { Text = "Место для друга", Foreground = Brush("#B0A99A"), FontSize = 12, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0, 0, 0) }; Grid.SetColumn(text, 1); row.Children.Add(text);
-                }
-                players.Children.Add(row);
-            }
+            RenderLobbyPlayers();
             B("ChoosePackButton").IsEnabled = IsHost; B("StartButton").IsEnabled = IsHost && state.pack.Selected && state.phase == "lobby" && downloadCancellation == null && state.players.Count >= 2 && state.players.All(p => p.ready);
             B("ReadyButton").Content = Me != null && Me.ready ? "✓  Готов" : "Я готов"; B("ReadyButton").IsEnabled = state.pack.Selected && state.phase == "lobby";
             Text("StartHint", state.players.Count < 2 ? "Пригласи друга через Steam" : state.players.All(p => p.ready) ? "Вся команда в сборе. Можно начинать!" : "Готовность: " + state.players.Count(p => p.ready) + " из " + state.players.Count);
@@ -506,16 +484,7 @@ namespace BrokenPhone
         }
         void RenderChat()
         {
-            var scroll = C<ScrollViewer>("ChatScroll"); bool bottom = scroll.ScrollableHeight - scroll.VerticalOffset < 18;
-            var messages = C<StackPanel>("ChatMessages"); messages.Children.Clear();
-            foreach (var chat in state.chat)
-            {
-                var line = new TextBlock { FontSize = 15, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 3, 6, 6) };
-                line.Inlines.Add(new System.Windows.Documents.Run(chat.time + "  ") { Foreground = Brush("#8F829E"), FontSize = 10 });
-                if (chat.name != "Студия") line.Inlines.Add(new System.Windows.Documents.Run(chat.name + ": ") { Foreground = Brush("#C4B1FF"), FontWeight = FontWeights.Bold });
-                line.Inlines.Add(new System.Windows.Documents.Run(chat.text) { Foreground = Brush(chat.name == "Студия" ? "#8B97B1" : "#E6EAF4") }); messages.Children.Add(line);
-            }
-            if (bottom) scroll.ScrollToEnd();
+            RenderLobbyChat();
         }
         void RefreshConnection() { RenderConnection(); }
         void RenderConnection()

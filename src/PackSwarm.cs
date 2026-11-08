@@ -53,12 +53,16 @@ namespace BrokenPhone
         {
             var hashes = new List<string>();
             using (var input = File.OpenRead(path))
+            using (var sha = SHA256.Create())
+            {
+                var bytes = new byte[(int)Math.Min(ChunkSize, input.Length)];
                 while (input.Position < input.Length)
                 {
-                    var bytes = new byte[(int)Math.Min(ChunkSize, input.Length - input.Position)]; int read = 0;
-                    while (read < bytes.Length) { int count = input.Read(bytes, read, bytes.Length - read); if (count == 0) throw new EndOfStreamException(); read += count; }
-                    hashes.Add(Hash(bytes));
+                    int length = (int)Math.Min(bytes.Length, input.Length - input.Position), read = 0;
+                    while (read < length) { int count = input.Read(bytes, read, length - read); if (count == 0) throw new EndOfStreamException(); read += count; }
+                    hashes.Add(BitConverter.ToString(sha.ComputeHash(bytes, 0, length)).Replace("-", "").ToLowerInvariant());
                 }
+            }
             return hashes.ToArray();
         }
     }

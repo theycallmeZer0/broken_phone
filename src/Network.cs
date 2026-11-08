@@ -26,9 +26,14 @@ namespace BrokenPhone
             while (offset < size) { int read = stream.Read(bytes, offset, size - offset); if (read == 0) throw new EndOfStreamException(); offset += read; }
             return bytes;
         }
+        internal static byte[] Encode(Message message) { return Encoding.UTF8.GetBytes(Json.Write(message)); }
         public static void Send(NetworkStream stream, object gate, Message message)
         {
             byte[] bytes = Encoding.UTF8.GetBytes(Json.Write(message));
+            lock (gate) { stream.Write(BitConverter.GetBytes(bytes.Length), 0, 4); stream.Write(bytes, 0, bytes.Length); }
+        }
+        internal static void Send(NetworkStream stream, object gate, byte[] bytes)
+        {
             lock (gate) { stream.Write(BitConverter.GetBytes(bytes.Length), 0, 4); stream.Write(bytes, 0, bytes.Length); }
         }
     }
@@ -40,10 +45,13 @@ namespace BrokenPhone
             public int PackRevision = -1;
             public string Id; public TcpClient Socket; public NetworkStream Stream; public object SendGate = new object(); public readonly ConcurrentDictionary<string, CancellationTokenSource> Transfers = new ConcurrentDictionary<string, CancellationTokenSource>();
             public void Send(Message message) { Wire.Send(Stream, SendGate, message); }
+            public void Send(byte[] bytes) { Wire.Send(Stream, SendGate, bytes); }
         }
         readonly TcpListener listener;
         readonly object gate = new object();
         int packRevision;
+        long stateSerializations;
+        internal long StateSerializations { get { return Interlocked.Read(ref stateSerializations); } }
         readonly List<Peer> peers = new List<Peer>();
         readonly Dictionary<int, string> takes = new Dictionary<int, string>();
         readonly RoomState state = new RoomState();
@@ -139,8 +147,22 @@ namespace BrokenPhone
         void Broadcast()
         {
             state.serverTime = Playback.Now;
+            byte[] full = null, light = null;
             foreach (var peer in peers.ToArray())
-                try { peer.Send(new Message { kind = "state", state = state.ForPacket(peer.PackRevision != packRevision) }); peer.PackRevision = packRevision; } catch { peer.Socket.Close(); }
+                try
+                {
+                    bool includePack = peer.PackRevision != packRevision;
+                    byte[] packet = includePack ? full : light;
+                    if (packet == null)
+                    {
+                        packet = Wire.Encode(new Message { kind = "state", state = state.ForPacket(includePack) });
+                        Interlocked.Increment(ref stateSerializations);
+                        if (includePack) full = packet; else light = packet;
+                    }
+                    // Every recipient of this variant gets the same immutable bytes.
+                    peer.Send(packet); peer.PackRevision = packRevision;
+                }
+                catch { peer.Socket.Close(); }
         }
         void Host(Player player) { if (!player.host) throw new InvalidOperationException("Это действие доступно ведущему."); }
         void Lobby() { if (state.phase != "lobby") throw new InvalidOperationException("Сначала вернитесь в лобби."); }
